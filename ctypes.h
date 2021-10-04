@@ -8,24 +8,24 @@
 // C types only; C++ source code don't use this
 
 #include <assert.h>
-#include <stdatomic.h>
+// #include <stdatomic.h>
 
 /* C11 atomic types */
-typedef atomic_bool             abool;
+typedef bool             abool;
 
-typedef atomic_uchar    au8;
-typedef atomic_ushort   au16;
-typedef atomic_uint     au32;
-typedef atomic_ulong    au64;
+typedef char    au8;
+typedef short   au16;
+typedef int     au32;
+typedef long    au64;
 static_assert(sizeof(au8) == 1, "sizeof(au8)");
 static_assert(sizeof(au16) == 2, "sizeof(au16)");
 static_assert(sizeof(au32) == 4, "sizeof(au32)");
 static_assert(sizeof(au64) == 8, "sizeof(au64)");
 
-typedef atomic_char     as8;
-typedef atomic_short    as16;
-typedef atomic_int      as32;
-typedef atomic_long     as64;
+typedef char     as8;
+typedef short    as16;
+typedef int      as32;
+typedef long     as64;
 static_assert(sizeof(as8) == 1, "sizeof(as8)");
 static_assert(sizeof(as16) == 2, "sizeof(as16)");
 static_assert(sizeof(as32) == 4, "sizeof(as32)");
