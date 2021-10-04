@@ -307,6 +307,18 @@ wh_iter_park(struct wormhole_iter * const iter);
 wh_iter_destroy(struct wormhole_iter * const iter);
 // }}} wh
 
+// intel x86 intrinsics, modified, stole from emmintrin.h
+static m128
+_mm_set1_epi8(char __b);
+static m128
+_mm_load_si128(m128 const *__p);
+static m128
+_mm_and_si128(m128 __a, m128 __b);
+static m128
+_mm_cmpgt_epi8(m128 __a, m128 __b);
+static m128
+_mm_add_epi8(m128 __a, m128 __b);
+
 #ifdef __cplusplus
 }
 #endif

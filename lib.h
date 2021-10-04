@@ -69,11 +69,12 @@ static_assert(sizeof(u64) == 8, "sizeof(u64)");
 static_assert(sizeof(u128) == 16, "sizeof(u128)");
 
 #if defined(__x86_64__)
-// typedef __m128i m128;
-struct m128 {
+struct _m128 {
   u64 a;
   u64 b;
 };
+
+typedef struct _m128 m128;
 #if defined(__AVX2__)
 typedef __m256i m256;
 #endif // __AVX2__
@@ -81,6 +82,7 @@ typedef __m256i m256;
 typedef __m512i m512;
 #endif // __AVX512F__
 #elif defined(__aarch64__)
+#error NOT AArch64.
 typedef uint8x16_t m128;
 #else
 #error Need x86_64 or AArch64.
@@ -517,19 +519,27 @@ vi128_decode_u64(const u8 * src, u64 * const out);
 
 // misc {{{
 // TODO: only works on little endian?
+
+typedef struct {
+  u16 a;
+  u16 b;
+  u16 c;
+} _u48;
 struct entry13 { // what a beautiful name
   union {
     u16 e1;
     struct { // easy for debugging
-      u64 e1_64:16;
-      u64 e3:48;
+      // REVIEW change bits-field to normal field; check operations on these are still correct
+      u64 e1_64; // was u64 e1_64: 16;
+      u64 e3; //  was u64 e1_64: 48;
     };
     u64 v64;
     void * ptr;
   };
 };
 
-static_assert(sizeof(struct entry13) == 8, "sizeof(entry13) != 8");
+// REVIEW screw this check
+// static_assert(sizeof(struct entry13) == 8, "sizeof(entry13) != 8");
 
 // directly access read .e1 and .e3
 // directly write .e1

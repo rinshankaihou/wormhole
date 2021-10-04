@@ -1,0 +1,5 @@
+# usage: ./gen $filename
+# example: ./gen wh.c
+# in fact this is the only file that can be translated for now
+# my compcert version=3.9, linux 64
+clightgen $1 -v -Wall -normalize -D__x86_64__=1 -fstruct-passing
