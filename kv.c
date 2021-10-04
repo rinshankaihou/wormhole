@@ -3,6 +3,9 @@
  *
  * All rights reserved. No warranty, explicit or implicit, provided.
  */
+
+// whether to keep unused functions or not
+#define KEEP 1
 #define _GNU_SOURCE
 
 // headers {{{
@@ -211,6 +214,7 @@ kv_null(void)
 }
 // }}} construct
 
+// NOTE
 // dup {{{
   inline struct kv *
 kv_dup(const struct kv * const kv)
@@ -240,6 +244,7 @@ kv_dup_key(const struct kv * const kv)
   return new;
 }
 
+// NOTE
   inline struct kv *
 kv_dup2(const struct kv * const from, struct kv * const to)
 {
@@ -252,6 +257,7 @@ kv_dup2(const struct kv * const from, struct kv * const to)
   return new;
 }
 
+// NOTE
   inline struct kv *
 kv_dup2_key(const struct kv * const from, struct kv * const to)
 {
@@ -296,6 +302,7 @@ klen_compare(const u32 len1, const u32 len2)
     return 0;
 }
 
+// NOTE
 // compare whether the two keys are identical
 // optimistic: do not check hash
   inline bool
@@ -339,6 +346,7 @@ kv_match_kv128(const struct kv * const sk, const u8 * const kv128)
   return (sk->klen == klen128) && (!memcmp(sk->kv, pdata, klen128));
 }
 
+// NOTE
   inline int
 kv_compare(const struct kv * const kv1, const struct kv * const kv2)
 {
@@ -388,6 +396,7 @@ kv_qsort(struct kv ** const kvs, const size_t nr)
   qsort(kvs, nr, sizeof(kvs[0]), kv_compare_ptrs);
 }
 
+// NOTE
 // return the length of longest common prefix of the two keys
   inline u32
 kv_key_lcp(const struct kv * const key1, const struct kv * const key2)
@@ -461,6 +470,7 @@ kv_psort(struct kv ** const kvs, const u64 nr, const u64 tlo, const u64 thi)
 }
 // }}} psort
 
+// NOTE
 // ptr {{{
   inline void *
 kv_vptr(struct kv * const kv)
@@ -468,18 +478,21 @@ kv_vptr(struct kv * const kv)
   return (void *)(&(kv->kv[kv->klen]));
 }
 
+// NOTE
   inline void *
 kv_kptr(struct kv * const kv)
 {
   return (void *)(&(kv->kv[0]));
 }
 
+// NOTE
   inline const void *
 kv_vptr_c(const struct kv * const kv)
 {
   return (const void *)(&(kv->kv[kv->klen]));
 }
 
+// NOTE
   inline const void *
 kv_kptr_c(const struct kv * const kv)
 {
@@ -586,6 +599,7 @@ kref_ref_raw(struct kref * const kref, const u8 * const ptr, const u32 len)
   kref->hash32 = 0;
 }
 
+// NOTE
   inline void
 kref_ref_hash32(struct kref * const kref, const u8 * const ptr, const u32 len)
 {
@@ -600,6 +614,7 @@ kref_update_hash32(struct kref * const kref)
   kref->hash32 = kv_crc32c(kref->ptr, kref->len);
 }
 
+// NOTE
   inline void
 kref_ref_kv(struct kref * const kref, const struct kv * const kv)
 {
@@ -622,6 +637,7 @@ kref_match(const struct kref * const k1, const struct kref * const k2)
   return (k1->len == k2->len) && (!memcmp(k1->ptr, k2->ptr, k1->len));
 }
 
+// NOTE
 // match a kref and a key
   inline bool
 kref_kv_match(const struct kref * const kref, const struct kv * const k)
@@ -637,6 +653,7 @@ kref_compare(const struct kref * const kref1, const struct kref * const kref2)
   return cmp ? cmp : klen_compare(kref1->len, kref2->len);
 }
 
+// NOTE
 // compare a kref and a key
   inline int
 kref_kv_compare(const struct kref * const kref, const struct kv * const k)
@@ -692,6 +709,7 @@ kref_kv128_compare(const struct kref * const sk, const u8 * const kv128)
 
 static struct kref __kref_null = {.hash32 = KV_CRC32C_SEED};
 
+// NOTE
   inline const struct kref *
 kref_null(void)
 {
@@ -699,6 +717,7 @@ kref_null(void)
 }
 // }}} kref
 
+// NOTE
 // kvref {{{
   inline void
 kvref_ref_kv(struct kvref * const ref, struct kv * const kv)
@@ -708,6 +727,7 @@ kvref_ref_kv(struct kvref * const ref, struct kv * const kv)
   ref->hdr = *kv;
 }
 
+#ifdef KEEP
   struct kv *
 kvref_dup2_kv(struct kvref * const ref, struct kv * const to)
 {
@@ -1043,3 +1063,4 @@ kvmap_dump_keys(const struct kvmap_api * const api, void * const map, const int 
 // }}} kvmap
 
 // vim:fdm=marker
+#endif

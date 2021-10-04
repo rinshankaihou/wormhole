@@ -30,7 +30,7 @@
 
 // SIMD
 #if defined(__x86_64__)
-#include <x86intrin.h>
+// #include <x86intrin.h>
 #elif defined(__aarch64__)
 #include <arm_acle.h>
 #include <arm_neon.h>
@@ -46,7 +46,11 @@ typedef char            s8;
 typedef short           s16;
 typedef int             s32;
 typedef long            s64;
-typedef __int128_t      s128;
+// typedef __int128_t      s128;
+typedef struct {
+  s64 a;
+  s64 b;
+} s128;
 static_assert(sizeof(s8) == 1, "sizeof(s8)");
 static_assert(sizeof(s16) == 2, "sizeof(s16)");
 static_assert(sizeof(s32) == 4, "sizeof(s32)");
@@ -57,7 +61,7 @@ typedef unsigned char   u8;
 typedef unsigned short  u16;
 typedef unsigned int    u32;
 typedef unsigned long   u64;
-typedef __uint128_t     u128;
+typedef s128     u128;
 static_assert(sizeof(u8) == 1, "sizeof(u8)");
 static_assert(sizeof(u16) == 2, "sizeof(u16)");
 static_assert(sizeof(u32) == 4, "sizeof(u32)");
@@ -65,7 +69,11 @@ static_assert(sizeof(u64) == 8, "sizeof(u64)");
 static_assert(sizeof(u128) == 16, "sizeof(u128)");
 
 #if defined(__x86_64__)
-typedef __m128i m128;
+// typedef __m128i m128;
+struct m128 {
+  u64 a;
+  u64 b;
+};
 #if defined(__AVX2__)
 typedef __m256i m256;
 #endif // __AVX2__
