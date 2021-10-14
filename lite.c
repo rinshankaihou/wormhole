@@ -469,6 +469,7 @@ liteleaf_insert(struct liteleaf * const leaf, const u32 i, struct kv * const new
 {
   memmove(&leaf->kvs[i+1], &leaf->kvs[i], sizeof(leaf->kvs[0]) * (leaf->nr_keys - i));
   leaf->kvs[i] = new;
+  leaf->nr_keys++;
 }
 
   static struct liteleaf *
