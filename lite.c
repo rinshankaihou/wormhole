@@ -24,13 +24,13 @@
 // }}} def
 
 // struct {{{
-struct wormleaf {
+struct liteleaf {
   // first line
   rwlock leaflock;
   u32 padding;
   au64 lv; // version (dont use the first u64)
-  struct wormleaf * prev; // prev leaf
-  struct wormleaf * next; // next leaf
+  struct liteleaf * prev; // prev leaf
+  struct liteleaf * next; // next leaf
   struct kv * anchor;
 
   u32 nr_keys;
@@ -39,7 +39,7 @@ struct wormleaf {
   struct kv * kvs[WH_KPN];
 };
 
-struct wormhmap {
+struct litehmap {
   au64 hv;
   u64 padding[7];
 
@@ -47,41 +47,41 @@ struct wormhmap {
   u64 nalloc;
 
   struct {
-    struct wormleaf * leaf;
+    struct liteleaf * leaf;
     struct kv * anchor;
   } * pairs;
   u64 padding1[5];
 };
 
-struct wormhole {
+struct litehole {
   // 1 line
   union {
     volatile au64 hmap_ptr; // safe
-    struct wormhmap * hmap; // unsafe
+    struct litehmap * hmap; // unsafe
   };
   u64 padding0[6];
-  struct wormleaf * leaf0; // usually not used
+  struct liteleaf * leaf0; // usually not used
   // 1 line
   struct kvmap_mm mm;
   struct qsbr * qsbr;
   struct slab * slab_leaf;
   u32 padding1[4];
   // 2 lines
-  struct wormhmap hmap2[2];
+  struct litehmap hmap2[2];
   // fifth line
   rwlock metalock;
   u32 padding2[15];
 };
 
-struct wormhole_iter {
-  struct wormref * ref; // safe-iter only
-  struct wormhole * map;
-  struct wormleaf * leaf;
+struct litehole_iter {
+  struct literef * ref; // safe-iter only
+  struct litehole * map;
+  struct liteleaf * leaf;
   u32 is;
 };
 
-struct wormref {
-  struct wormhole * map;
+struct literef {
+  struct litehole * map;
   struct qsbr_ref qref;
 };
 // }}} struct
@@ -89,11 +89,11 @@ struct wormref {
 // helpers {{{
 
 // alloc {{{
-  static struct wormleaf *
-wormleaf_alloc(struct wormhole * const map, struct wormleaf * const prev,
-    struct wormleaf * const next, struct kv * const anchor)
+  static struct liteleaf *
+liteleaf_alloc(struct litehole * const map, struct liteleaf * const prev,
+    struct liteleaf * const next, struct kv * const anchor)
 {
-  struct wormleaf * const leaf = slab_alloc_safe(map->slab_leaf);
+  struct liteleaf * const leaf = slab_alloc_safe(map->slab_leaf);
   if (leaf == NULL)
     return NULL;
 
@@ -111,7 +111,7 @@ wormleaf_alloc(struct wormhole * const map, struct wormleaf * const prev,
 }
 
   static void
-wormleaf_free(struct slab * const slab, struct wormleaf * const leaf)
+liteleaf_free(struct slab * const slab, struct liteleaf * const leaf)
 {
   debug_assert(leaf->leaflock.opaque == 0);
   free(leaf->anchor);
@@ -119,14 +119,14 @@ wormleaf_free(struct slab * const slab, struct wormleaf * const leaf)
 }
 
   static inline bool
-wormhole_hmap_reserve(struct wormhole * const map, const u32 nr)
+litehole_hmap_reserve(struct litehole * const map, const u32 nr)
 {
 #ifdef ALLOCFAIL
   if (alloc_fail())
     return false;
 #endif
   for (u32 i = 0; i < 2; i++) {
-    struct wormhmap * const hmap = &map->hmap2[i];
+    struct litehmap * const hmap = &map->hmap2[i];
     if (hmap->nkeys + nr > hmap->nalloc) { // try realloc
       const u64 n1 = hmap->nalloc + 256;
       void * const pairs1 = realloc(hmap->pairs, sizeof(hmap->pairs[0]) * n1);
@@ -142,94 +142,94 @@ wormhole_hmap_reserve(struct wormhole * const map, const u32 nr)
 
 // lock {{{
   static void
-wormleaf_lock_write(struct wormleaf * const leaf, struct wormref * const ref)
+liteleaf_lock_write(struct liteleaf * const leaf, struct literef * const ref)
 {
   if (!rwlock_trylock_write(&(leaf->leaflock))) {
-    wormhole_park(ref);
+    litehole_park(ref);
     rwlock_lock_write(&(leaf->leaflock));
-    wormhole_resume(ref);
+    litehole_resume(ref);
   }
 }
 
   static void
-wormleaf_lock_read(struct wormleaf * const leaf, struct wormref * const ref)
+liteleaf_lock_read(struct liteleaf * const leaf, struct literef * const ref)
 {
   if (!rwlock_trylock_read(&(leaf->leaflock))) {
-    wormhole_park(ref);
+    litehole_park(ref);
     rwlock_lock_read(&(leaf->leaflock));
-    wormhole_resume(ref);
+    litehole_resume(ref);
   }
 }
 
   static void
-wormleaf_unlock_write(struct wormleaf * const leaf)
+liteleaf_unlock_write(struct liteleaf * const leaf)
 {
   rwlock_unlock_write(&(leaf->leaflock));
 }
 
   static void
-wormleaf_unlock_read(struct wormleaf * const leaf)
+liteleaf_unlock_read(struct liteleaf * const leaf)
 {
   rwlock_unlock_read(&(leaf->leaflock));
 }
 
   static void
-wormhmap_lock(struct wormhole * const map, struct wormref * const ref)
+litehmap_lock(struct litehole * const map, struct literef * const ref)
 {
   if (!rwlock_trylock_write(&(map->metalock))) {
-    wormhole_park(ref);
+    litehole_park(ref);
     rwlock_lock_write(&(map->metalock));
-    wormhole_resume(ref);
+    litehole_resume(ref);
   }
 }
 
   static inline void
-wormhmap_unlock(struct wormhole * const map)
+litehmap_unlock(struct litehole * const map)
 {
   rwlock_unlock_write(&(map->metalock));
 }
 // }}} lock
 
 // hmap-version {{{
-  static inline struct wormhmap *
-wormhmap_switch(struct wormhole * const map, struct wormhmap * const hmap)
+  static inline struct litehmap *
+litehmap_switch(struct litehole * const map, struct litehmap * const hmap)
 {
   return (hmap == map->hmap2) ? (hmap + 1) : (hmap - 1);
 }
 
-  static inline struct wormhmap *
-wormhmap_load(struct wormhole * const map)
+  static inline struct litehmap *
+litehmap_load(struct litehole * const map)
 {
-  return (struct wormhmap *)atomic_load_explicit(&(map->hmap_ptr), MO_ACQUIRE);
+  return (struct litehmap *)atomic_load_explicit(&(map->hmap_ptr), MO_ACQUIRE);
 }
 
   static inline void
-wormhmap_store(struct wormhole * const map, struct wormhmap * const hmap)
+litehmap_store(struct litehole * const map, struct litehmap * const hmap)
 {
   atomic_store_explicit(&(map->hmap_ptr), (u64)hmap, MO_RELEASE);
 }
 
   static inline u64
-wormhmap_version_load(const struct wormhmap * const hmap)
+litehmap_version_load(const struct litehmap * const hmap)
 {
   // no concurrent access
   return atomic_load_explicit(&(hmap->hv), MO_ACQUIRE);
 }
 
   static inline void
-wormhmap_version_store(struct wormhmap * const hmap, const u64 v)
+litehmap_version_store(struct litehmap * const hmap, const u64 v)
 {
   atomic_store_explicit(&(hmap->hv), v, MO_RELEASE);
 }
 
   static inline u64
-wormleaf_version_load(struct wormleaf * const leaf)
+liteleaf_version_load(struct liteleaf * const leaf)
 {
   return atomic_load_explicit(&(leaf->lv), MO_CONSUME);
 }
 
   static inline void
-wormleaf_version_store(struct wormleaf * const leaf, const u64 v)
+liteleaf_version_store(struct liteleaf * const leaf, const u64 v)
 {
   atomic_store_explicit(&(leaf->lv), v, MO_RELEASE);
 }
@@ -237,7 +237,7 @@ wormleaf_version_store(struct wormleaf * const leaf, const u64 v)
 
 // co {{{
   static inline void
-wormhole_qsbr_update_pause(struct wormref * const ref, const u64 v)
+litehole_qsbr_update_pause(struct literef * const ref, const u64 v)
 {
   qsbr_update(&ref->qref, v);
 #if defined(CORR)
@@ -251,7 +251,7 @@ wormhole_qsbr_update_pause(struct wormref * const ref, const u64 v)
 // create {{{
 // it's unsafe
   static bool
-wormhole_create_leaf0(struct wormhole * const map)
+litehole_create_leaf0(struct litehole * const map)
 {
   // create leaf of empty key
   struct kv * const anchor = malloc(sizeof(*anchor));
@@ -259,7 +259,7 @@ wormhole_create_leaf0(struct wormhole * const map)
     return false;
   kv_dup2(kv_null(), anchor);
 
-  struct wormleaf * const leaf0 = wormleaf_alloc(map, NULL, NULL, anchor);
+  struct liteleaf * const leaf0 = liteleaf_alloc(map, NULL, NULL, anchor);
   if (leaf0 == NULL) {
     free(anchor);
     return false;
@@ -269,10 +269,10 @@ wormhole_create_leaf0(struct wormhole * const map)
   return true;
 }
 
-  struct wormhole *
-wormhole_create(const struct kvmap_mm * const mm)
+  struct litehole *
+litehole_create(const struct kvmap_mm * const mm)
 {
-  struct wormhole * const map = yalloc(sizeof(*map));
+  struct litehole * const map = yalloc(sizeof(*map));
   if (map == NULL)
     return NULL;
   memset(map, 0, sizeof(*map));
@@ -280,7 +280,7 @@ wormhole_create(const struct kvmap_mm * const mm)
   map->mm = mm ? (*mm) : kvmap_mm_dup;
 
   // leaf slab
-  map->slab_leaf = slab_create(sizeof(struct wormleaf), WH_SLABLEAF_SIZE);
+  map->slab_leaf = slab_create(sizeof(struct liteleaf), WH_SLABLEAF_SIZE);
   if (map->slab_leaf == NULL)
     goto fail;
 
@@ -290,14 +290,14 @@ wormhole_create(const struct kvmap_mm * const mm)
     goto fail;
 
   // leaf0
-  if (!wormhole_create_leaf0(map))
+  if (!litehole_create_leaf0(map))
     goto fail;
 
-  struct wormleaf * const leaf0 = map->leaf0;
+  struct liteleaf * const leaf0 = map->leaf0;
 
   // hmap
   for (u32 i = 0; i < 2; i++) {
-    struct wormhmap * const hmap = &map->hmap2[i];
+    struct litehmap * const hmap = &map->hmap2[i];
     hmap->nalloc = 256;
     hmap->pairs = malloc(sizeof(*hmap->pairs) * 256);
     if (hmap->pairs == NULL)
@@ -309,12 +309,12 @@ wormhole_create(const struct kvmap_mm * const mm)
   }
 
   rwlock_init(&(map->metalock));
-  wormhmap_store(map, &map->hmap2[0]);
+  litehmap_store(map, &map->hmap2[0]);
   return map;
 
 fail:
   if (map->leaf0)
-    wormleaf_free(map->slab_leaf, map->leaf0);
+    liteleaf_free(map->slab_leaf, map->leaf0);
 
   if (map->qsbr)
     qsbr_destroy(map->qsbr);
@@ -323,7 +323,7 @@ fail:
     slab_destroy(map->slab_leaf);
 
   for (u32 i = 0; i < 2; i++) {
-    struct wormhmap * const hmap = &map->hmap2[i];
+    struct litehmap * const hmap = &map->hmap2[i];
     if (hmap->pairs)
       free(hmap->pairs);
   }
@@ -337,7 +337,7 @@ fail:
 // return the index of leaf where anchor <= key < nextanchor
 // seek_le
   static u64
-wormhmap_jump_i(const struct wormhmap * const hmap, const struct kref * const key)
+litehmap_jump_i(const struct litehmap * const hmap, const struct kref * const key)
 {
   u64 l = 0;
   u64 r = hmap->nkeys;
@@ -355,63 +355,63 @@ wormhmap_jump_i(const struct wormhmap * const hmap, const struct kref * const ke
   return l;
 }
 
-  static struct wormleaf *
-wormhole_jump_leaf(const struct wormhmap * const hmap, const struct kref * const key)
+  static struct liteleaf *
+litehole_jump_leaf(const struct litehmap * const hmap, const struct kref * const key)
 {
-  const u64 i = wormhmap_jump_i(hmap, key);
+  const u64 i = litehmap_jump_i(hmap, key);
   return hmap->pairs[i].leaf;
 }
 
-  static struct wormleaf *
-wormhole_jump_leaf_read(struct wormref * const ref, const struct kref * const key)
+  static struct liteleaf *
+litehole_jump_leaf_read(struct literef * const ref, const struct kref * const key)
 {
-  struct wormhole * const map = ref->map;
+  struct litehole * const map = ref->map;
 #pragma nounroll
   do {
-    const struct wormhmap * const hmap = wormhmap_load(map);
-    const u64 v = wormhmap_version_load(hmap);
+    const struct litehmap * const hmap = litehmap_load(map);
+    const u64 v = litehmap_version_load(hmap);
     qsbr_update(&ref->qref, v);
-    struct wormleaf * const leaf = wormhole_jump_leaf(hmap, key);
+    struct liteleaf * const leaf = litehole_jump_leaf(hmap, key);
 #pragma nounroll
     do {
       if (rwlock_trylock_read_nr(&(leaf->leaflock), 64)) {
-        if (wormleaf_version_load(leaf) <= v)
+        if (liteleaf_version_load(leaf) <= v)
           return leaf;
-        wormleaf_unlock_read(leaf);
+        liteleaf_unlock_read(leaf);
         break;
       }
       // v1 is loaded before lv; if lv <= v, can update v1 without redo jump
-      const u64 v1 = wormhmap_version_load(wormhmap_load(map));
-      if (wormleaf_version_load(leaf) > v)
+      const u64 v1 = litehmap_version_load(litehmap_load(map));
+      if (liteleaf_version_load(leaf) > v)
         break;
-      wormhole_qsbr_update_pause(ref, v1);
+      litehole_qsbr_update_pause(ref, v1);
     } while (true);
   } while (true);
 }
 
-  static struct wormleaf *
-wormhole_jump_leaf_write(struct wormref * const ref, const struct kref * const key)
+  static struct liteleaf *
+litehole_jump_leaf_write(struct literef * const ref, const struct kref * const key)
 {
-  struct wormhole * const map = ref->map;
+  struct litehole * const map = ref->map;
 #pragma nounroll
   do {
-    const struct wormhmap * const hmap = wormhmap_load(map);
-    const u64 v = wormhmap_version_load(hmap);
+    const struct litehmap * const hmap = litehmap_load(map);
+    const u64 v = litehmap_version_load(hmap);
     qsbr_update(&ref->qref, v);
-    struct wormleaf * const leaf = wormhole_jump_leaf(hmap, key);
+    struct liteleaf * const leaf = litehole_jump_leaf(hmap, key);
 #pragma nounroll
     do {
       if (rwlock_trylock_write_nr(&(leaf->leaflock), 64)) {
-        if (wormleaf_version_load(leaf) <= v)
+        if (liteleaf_version_load(leaf) <= v)
           return leaf;
-        wormleaf_unlock_write(leaf);
+        liteleaf_unlock_write(leaf);
         break;
       }
       // v1 is loaded before lv; if lv <= v, can update v1 without redo jump
-      const u64 v1 = wormhmap_version_load(wormhmap_load(map));
-      if (wormleaf_version_load(leaf) > v)
+      const u64 v1 = litehmap_version_load(litehmap_load(map));
+      if (liteleaf_version_load(leaf) > v)
         break;
-      wormhole_qsbr_update_pause(ref, v1);
+      litehole_qsbr_update_pause(ref, v1);
     } while (true);
   } while (true);
 }
@@ -420,7 +420,7 @@ wormhole_jump_leaf_write(struct wormref * const ref, const struct kref * const k
 // leaf {{{
 // return WH_KPN when the key is not found
   static u32
-wormleaf_match_i(const struct wormleaf * const leaf, const struct kref * const key)
+liteleaf_match_i(const struct liteleaf * const leaf, const struct kref * const key)
 {
   u32 l = 0;
   u32 r = leaf->nr_keys;
@@ -439,7 +439,7 @@ wormleaf_match_i(const struct wormleaf * const leaf, const struct kref * const k
 
 // the highest bit is set for match
   static u32
-wormleaf_seek_ge(const struct wormleaf * const leaf, const struct kref * const key)
+liteleaf_seek_ge(const struct liteleaf * const leaf, const struct kref * const key)
 {
   u32 l = 0;
   u32 r = leaf->nr_keys;
@@ -457,7 +457,7 @@ wormleaf_seek_ge(const struct wormleaf * const leaf, const struct kref * const k
 }
 
   static struct kv *
-wormleaf_update(struct wormleaf * const leaf, const u32 i, struct kv * const new)
+liteleaf_update(struct liteleaf * const leaf, const u32 i, struct kv * const new)
 {
   struct kv * const old = leaf->kvs[i];
   leaf->kvs[i] = new;
@@ -465,14 +465,14 @@ wormleaf_update(struct wormleaf * const leaf, const u32 i, struct kv * const new
 }
 
   static void
-wormleaf_insert(struct wormleaf * const leaf, const u32 i, struct kv * const new)
+liteleaf_insert(struct liteleaf * const leaf, const u32 i, struct kv * const new)
 {
   memmove(&leaf->kvs[i+1], &leaf->kvs[i], sizeof(leaf->kvs[0]) * (leaf->nr_keys - i));
   leaf->kvs[i] = new;
 }
 
-  static struct wormleaf *
-wormhole_split_leaf(struct wormhole * const map, struct wormleaf * const leaf1,
+  static struct liteleaf *
+litehole_split_leaf(struct litehole * const map, struct liteleaf * const leaf1,
     const u32 i, struct kv * const new)
 {
   debug_assert(leaf1->nr_keys == WH_KPN);
@@ -480,7 +480,7 @@ wormhole_split_leaf(struct wormhole * const map, struct wormleaf * const leaf1,
   if (anchor2 == NULL)
     return NULL;
 
-  struct wormleaf * const leaf2 = wormleaf_alloc(map, leaf1, leaf1->next, anchor2);
+  struct liteleaf * const leaf2 = liteleaf_alloc(map, leaf1, leaf1->next, anchor2);
   if (unlikely(leaf2 == NULL)) {
     free(anchor2);
     return NULL;
@@ -489,15 +489,15 @@ wormhole_split_leaf(struct wormhole * const map, struct wormleaf * const leaf1,
   leaf1->nr_keys = WH_MID;
   leaf2->nr_keys = WH_MID;
   if (i <= WH_MID) {
-    wormleaf_insert(leaf1, i, new);
+    liteleaf_insert(leaf1, i, new);
   } else {
-    wormleaf_insert(leaf2, i - WH_MID, new);
+    liteleaf_insert(leaf2, i - WH_MID, new);
   }
   return leaf2;
 }
 
   static struct kv *
-wormleaf_remove(struct wormleaf * const leaf, const u32 i)
+liteleaf_remove(struct liteleaf * const leaf, const u32 i)
 {
   struct kv * const kv = leaf->kvs[i];
   memmove(&leaf->kvs[i], &leaf->kvs[i+1], sizeof(leaf->kvs[0]) * (leaf->nr_keys - i - 1));
@@ -506,7 +506,7 @@ wormleaf_remove(struct wormleaf * const leaf, const u32 i)
 }
 
   static bool
-wormleaf_merge(struct wormleaf * const leaf1, struct wormleaf * const leaf2)
+liteleaf_merge(struct liteleaf * const leaf1, struct liteleaf * const leaf2)
 {
   debug_assert((leaf1->nr_keys + leaf2->nr_keys) < WH_KPN);
   memmove(&leaf1->kvs[leaf1->nr_keys], &leaf2->kvs[0], sizeof(leaf1->kvs[0]) * leaf2->nr_keys);
@@ -516,39 +516,39 @@ wormleaf_merge(struct wormleaf * const leaf1, struct wormleaf * const leaf2)
 }
 
   static void
-wormleaf_split_undo(struct wormhole * const map, struct wormleaf * const leaf1,
-    struct wormleaf * const leaf2, const u32 i)
+liteleaf_split_undo(struct litehole * const map, struct liteleaf * const leaf1,
+    struct liteleaf * const leaf2, const u32 i)
 {
   if (i <= WH_MID) {
-    wormleaf_remove(leaf1, i);
+    liteleaf_remove(leaf1, i);
   } else {
-    wormleaf_remove(leaf2, i - WH_MID);
+    liteleaf_remove(leaf2, i - WH_MID);
   }
   debug_assert(leaf1->nr_keys == WH_MID);
   debug_assert(leaf2->nr_keys == WH_MID);
-  wormleaf_merge(leaf1, leaf2);
-  wormleaf_unlock_write(leaf2);
-  wormleaf_free(map->slab_leaf, leaf2);
+  liteleaf_merge(leaf1, leaf2);
+  liteleaf_unlock_write(leaf2);
+  liteleaf_free(map->slab_leaf, leaf2);
 }
 // }}} leaf
 
 // get/probe {{{
   struct kv *
-wormhole_get(struct wormref * const ref, const struct kref * const key, struct kv * const out)
+litehole_get(struct literef * const ref, const struct kref * const key, struct kv * const out)
 {
-  struct wormleaf * const leaf = wormhole_jump_leaf_read(ref, key);
-  const u32 i = wormleaf_match_i(leaf, key);
+  struct liteleaf * const leaf = litehole_jump_leaf_read(ref, key);
+  const u32 i = liteleaf_match_i(leaf, key);
   struct kv * const tmp = (i < WH_KPN) ? ref->map->mm.out(leaf->kvs[i], out) : NULL;
-  wormleaf_unlock_read(leaf);
+  liteleaf_unlock_read(leaf);
   return tmp;
 }
 
   struct kv *
-whsafe_get(struct wormref * const ref, const struct kref * const key, struct kv * const out)
+whsafe_get(struct literef * const ref, const struct kref * const key, struct kv * const out)
 {
-  wormhole_resume(ref);
-  struct kv * const ret = wormhole_get(ref, key, out);
-  wormhole_park(ref);
+  litehole_resume(ref);
+  struct kv * const ret = litehole_get(ref, key, out);
+  litehole_park(ref);
   return ret;
 }
 // }}} get/probe
@@ -556,7 +556,7 @@ whsafe_get(struct wormref * const ref, const struct kref * const key, struct kv 
 // meta-split {{{
 // return the index of leaf where anchor <= key < nextanchor
   static u64
-wormhmap_seek_ge(const struct wormhmap * const hmap, const struct kv * const anchor)
+litehmap_seek_ge(const struct litehmap * const hmap, const struct kv * const anchor)
 {
   u64 l = 0;
   u64 r = hmap->nkeys;
@@ -575,10 +575,10 @@ wormhmap_seek_ge(const struct wormhmap * const hmap, const struct kv * const anc
 }
 
   static void
-wormmeta_split(struct wormhmap * const hmap, struct wormleaf * const leaf)
+litemeta_split(struct litehmap * const hmap, struct liteleaf * const leaf)
 {
   debug_assert(hmap->nalloc > hmap->nkeys);
-  const u64 i = wormhmap_seek_ge(hmap, leaf->anchor);
+  const u64 i = litehmap_seek_ge(hmap, leaf->anchor);
   memmove(&hmap->pairs[i+1], &hmap->pairs[i], sizeof(hmap->pairs[0]) * (hmap->nkeys - i));
   hmap->pairs[i].leaf = leaf;
   hmap->pairs[i].anchor = leaf->anchor;
@@ -587,49 +587,49 @@ wormmeta_split(struct wormhmap * const hmap, struct wormleaf * const leaf)
 
 // all locks will be released before returning
   static bool
-wormhole_split_meta(struct wormref * const ref, struct wormleaf * const leaf2)
+litehole_split_meta(struct literef * const ref, struct liteleaf * const leaf2)
 {
-  struct wormhole * const map = ref->map;
+  struct litehole * const map = ref->map;
   // metalock
-  wormhmap_lock(map, ref);
+  litehmap_lock(map, ref);
 
   // check slab reserve
-  const bool sr = wormhole_hmap_reserve(map, 1);
+  const bool sr = litehole_hmap_reserve(map, 1);
   if (unlikely(!sr)) {
-    wormhmap_unlock(map);
+    litehmap_unlock(map);
     return false;
   }
 
-  struct wormhmap * const hmap0 = wormhmap_load(map);
-  struct wormhmap * const hmap1 = wormhmap_switch(map, hmap0);
+  struct litehmap * const hmap0 = litehmap_load(map);
+  struct litehmap * const hmap1 = litehmap_switch(map, hmap0);
 
   // link
-  struct wormleaf * const leaf1 = leaf2->prev;
+  struct liteleaf * const leaf1 = leaf2->prev;
   leaf1->next = leaf2;
   if (leaf2->next)
     leaf2->next->prev = leaf2;
 
   // update versions
-  const u64 v1 = wormhmap_version_load(hmap0) + 1;
-  wormleaf_version_store(leaf1, v1);
-  wormleaf_version_store(leaf2, v1);
-  wormhmap_version_store(hmap1, v1);
+  const u64 v1 = litehmap_version_load(hmap0) + 1;
+  liteleaf_version_store(leaf1, v1);
+  liteleaf_version_store(leaf2, v1);
+  litehmap_version_store(hmap1, v1);
 
-  wormmeta_split(hmap1, leaf2);
+  litemeta_split(hmap1, leaf2);
 
   qsbr_update(&ref->qref, v1);
 
   // switch hmap
-  wormhmap_store(map, hmap1);
+  litehmap_store(map, hmap1);
 
-  wormleaf_unlock_write(leaf1);
-  wormleaf_unlock_write(leaf2);
+  liteleaf_unlock_write(leaf1);
+  liteleaf_unlock_write(leaf2);
 
   qsbr_wait(map->qsbr, v1);
 
-  wormmeta_split(hmap0, leaf2);
+  litemeta_split(hmap0, leaf2);
 
-  wormhmap_unlock(map);
+  litehmap_unlock(map);
 
   return true;
 }
@@ -637,21 +637,21 @@ wormhole_split_meta(struct wormref * const ref, struct wormleaf * const leaf2)
 // all locks (metalock + leaflocks) will be released before returning
 // leaf1->lock (write) is already taken
   static bool
-wormhole_split_insert(struct wormref * const ref, struct wormleaf * const leaf1,
+litehole_split_insert(struct literef * const ref, struct liteleaf * const leaf1,
     const u32 i, struct kv * const new)
 {
-  struct wormleaf * const leaf2 = wormhole_split_leaf(ref->map, leaf1, i, new);
+  struct liteleaf * const leaf2 = litehole_split_leaf(ref->map, leaf1, i, new);
   if (unlikely(leaf2 == NULL)) {
-    wormleaf_unlock_write(leaf1);
+    liteleaf_unlock_write(leaf1);
     return false;
   }
 
   rwlock_lock_write(&(leaf2->leaflock));
-  const bool rsm = wormhole_split_meta(ref, leaf2);
+  const bool rsm = litehole_split_meta(ref, leaf2);
   if (unlikely(!rsm)) {
     // undo insertion & merge; free leaf2
-    wormleaf_split_undo(ref->map, leaf1, leaf2, i);
-    wormleaf_unlock_write(leaf1);
+    liteleaf_split_undo(ref->map, leaf1, leaf2, i);
+    liteleaf_unlock_write(leaf1);
   }
   return rsm;
 }
@@ -659,9 +659,9 @@ wormhole_split_insert(struct wormref * const ref, struct wormleaf * const leaf1,
 
 // meta-merge {{{
   static void
-wormmeta_merge(struct wormhmap * const hmap, struct wormleaf * const leaf)
+litemeta_merge(struct litehmap * const hmap, struct liteleaf * const leaf)
 {
-  const u64 i = wormhmap_seek_ge(hmap, leaf->anchor);
+  const u64 i = litehmap_seek_ge(hmap, leaf->anchor);
   debug_assert(hmap->pairs[i].leaf == leaf);
   memmove(&hmap->pairs[i], &hmap->pairs[i+1], sizeof(hmap->pairs[0]) * (hmap->nkeys - i - 1));
   hmap->nkeys--;
@@ -670,156 +670,156 @@ wormmeta_merge(struct wormhmap * const hmap, struct wormleaf * const leaf)
 // all locks (metalock + two leaflock) will be released before returning
 // merge leaf2 to leaf1, removing all metadata to leaf2 and leaf2 itself
   static void
-wormhole_meta_merge(struct wormref * const ref, struct wormleaf * const leaf1,
-    struct wormleaf * const leaf2, const bool unlock_leaf1)
+litehole_meta_merge(struct literef * const ref, struct liteleaf * const leaf1,
+    struct liteleaf * const leaf2, const bool unlock_leaf1)
 {
   debug_assert(leaf1->next == leaf2);
   debug_assert(leaf2->prev == leaf1);
-  struct wormhole * const map = ref->map;
+  struct litehole * const map = ref->map;
 
-  wormhmap_lock(map, ref);
+  litehmap_lock(map, ref);
 
-  struct wormhmap * const hmap0 = wormhmap_load(map);
-  struct wormhmap * const hmap1 = wormhmap_switch(map, hmap0);
-  const u64 v1 = wormhmap_version_load(hmap0) + 1;
+  struct litehmap * const hmap0 = litehmap_load(map);
+  struct litehmap * const hmap1 = litehmap_switch(map, hmap0);
+  const u64 v1 = litehmap_version_load(hmap0) + 1;
 
   leaf1->next = leaf2->next;
   if (leaf2->next)
     leaf2->next->prev = leaf1;
 
-  wormleaf_version_store(leaf1, v1);
-  wormleaf_version_store(leaf2, v1);
-  wormhmap_version_store(hmap1, v1);
+  liteleaf_version_store(leaf1, v1);
+  liteleaf_version_store(leaf2, v1);
+  litehmap_version_store(hmap1, v1);
 
-  wormmeta_merge(hmap1, leaf2);
+  litemeta_merge(hmap1, leaf2);
 
   qsbr_update(&ref->qref, v1);
 
   // switch hmap
-  wormhmap_store(map, hmap1);
+  litehmap_store(map, hmap1);
 
   if (unlock_leaf1)
-    wormleaf_unlock_write(leaf1);
-  wormleaf_unlock_write(leaf2);
+    liteleaf_unlock_write(leaf1);
+  liteleaf_unlock_write(leaf2);
 
   qsbr_wait(map->qsbr, v1);
 
-  wormmeta_merge(hmap0, leaf2);
+  litemeta_merge(hmap0, leaf2);
   // leaf2 is now safe to be removed
-  wormleaf_free(map->slab_leaf, leaf2);
-  wormhmap_unlock(map);
+  liteleaf_free(map->slab_leaf, leaf2);
+  litehmap_unlock(map);
 }
 
 // caller must acquire leaf->wlock and next->wlock
 // all locks will be released when this function returns
   static bool
-wormhole_meta_leaf_merge(struct wormref * const ref, struct wormleaf * const leaf)
+litehole_meta_leaf_merge(struct literef * const ref, struct liteleaf * const leaf)
 {
-  struct wormleaf * const next = leaf->next;
+  struct liteleaf * const next = leaf->next;
   debug_assert(next);
 
   // double check
   if ((leaf->nr_keys + next->nr_keys) <= WH_KPN) {
-    if (wormleaf_merge(leaf, next)) {
-      wormhole_meta_merge(ref, leaf, next, true);
+    if (liteleaf_merge(leaf, next)) {
+      litehole_meta_merge(ref, leaf, next, true);
       return true;
     }
   }
   // merge failed but it's fine
-  wormleaf_unlock_write(leaf);
-  wormleaf_unlock_write(next);
+  liteleaf_unlock_write(leaf);
+  liteleaf_unlock_write(next);
   return false;
 }
 // }}} meta-merge
 
 // put {{{
   bool
-wormhole_put(struct wormref * const ref, struct kv * const kv)
+litehole_put(struct literef * const ref, struct kv * const kv)
 {
   // we always allocate a new item on SET
   // future optimizations may perform in-place update
-  struct wormhole * const map = ref->map;
+  struct litehole * const map = ref->map;
   struct kv * const new = map->mm.in(kv, map->mm.priv);
   if (unlikely(new == NULL))
     return false;
   const struct kref kref = kv_kref(new);
 
-  struct wormleaf * const leaf = wormhole_jump_leaf_write(ref, &kref);
+  struct liteleaf * const leaf = litehole_jump_leaf_write(ref, &kref);
   // update
-  const u32 im = wormleaf_seek_ge(leaf, &kref);
+  const u32 im = liteleaf_seek_ge(leaf, &kref);
   const u32 i = im & WH_KPN_MASK;
   if (im >> 31) {
-    struct kv * const old = wormleaf_update(leaf, i, new);
-    wormleaf_unlock_write(leaf);
+    struct kv * const old = liteleaf_update(leaf, i, new);
+    liteleaf_unlock_write(leaf);
     map->mm.free(old, map->mm.priv);
     return true;
   }
 
   // insert
   if (likely(leaf->nr_keys < WH_KPN)) { // just insert
-    wormleaf_insert(leaf, i, new);
-    wormleaf_unlock_write(leaf);
+    liteleaf_insert(leaf, i, new);
+    liteleaf_unlock_write(leaf);
     return true;
   }
 
   // split_insert changes hmap
-  // all locks should be released in wormhole_split_insert()
-  const bool rsi = wormhole_split_insert(ref, leaf, i, new);
+  // all locks should be released in litehole_split_insert()
+  const bool rsi = litehole_split_insert(ref, leaf, i, new);
   if (!rsi)
     map->mm.free(new, map->mm.priv);
   return rsi;
 }
 
   bool
-whsafe_put(struct wormref * const ref, struct kv * const kv)
+whsafe_put(struct literef * const ref, struct kv * const kv)
 {
-  wormhole_resume(ref);
-  const bool r = wormhole_put(ref, kv);
-  wormhole_park(ref);
+  litehole_resume(ref);
+  const bool r = litehole_put(ref, kv);
+  litehole_park(ref);
   return r;
 }
 // }}} put
 
 // del {{{
   static void
-wormhole_del_try_merge(struct wormref * const ref, struct wormleaf * const leaf)
+litehole_del_try_merge(struct literef * const ref, struct liteleaf * const leaf)
 {
-  struct wormleaf * const next = leaf->next;
+  struct liteleaf * const next = leaf->next;
   if (next && ((leaf->nr_keys == 0) || ((leaf->nr_keys + next->nr_keys) < WH_KPN_MRG))) {
     // try merge, it may fail if size becomes larger after locking
-    wormleaf_lock_write(next, ref);
-    (void)wormhole_meta_leaf_merge(ref, leaf);
+    liteleaf_lock_write(next, ref);
+    (void)litehole_meta_leaf_merge(ref, leaf);
     // locks are already released; immediately return
   } else {
-    wormleaf_unlock_write(leaf);
+    liteleaf_unlock_write(leaf);
   }
 }
 
   bool
-wormhole_del(struct wormref * const ref, const struct kref * const key)
+litehole_del(struct literef * const ref, const struct kref * const key)
 {
-  struct wormleaf * const leaf = wormhole_jump_leaf_write(ref, key);
-  const u32 im = wormleaf_match_i(leaf, key);
+  struct liteleaf * const leaf = litehole_jump_leaf_write(ref, key);
+  const u32 im = liteleaf_match_i(leaf, key);
   if (im < WH_KPN) { // found
-    struct kv * const kv = wormleaf_remove(leaf, im);
-    wormhole_del_try_merge(ref, leaf);
+    struct kv * const kv = liteleaf_remove(leaf, im);
+    litehole_del_try_merge(ref, leaf);
     debug_assert(kv);
     // free after releasing locks
-    struct wormhole * const map = ref->map;
+    struct litehole * const map = ref->map;
     map->mm.free(kv, map->mm.priv);
     return true;
   } else {
-    wormleaf_unlock_write(leaf);
+    liteleaf_unlock_write(leaf);
     return false;
   }
 }
 
   bool
-whsafe_del(struct wormref * const ref, const struct kref * const key)
+whsafe_del(struct literef * const ref, const struct kref * const key)
 {
-  wormhole_resume(ref);
-  const bool r = wormhole_del(ref, key);
-  wormhole_park(ref);
+  litehole_resume(ref);
+  const bool r = litehole_del(ref, key);
+  litehole_park(ref);
   return r;
 }
 // }}} del
@@ -827,10 +827,10 @@ whsafe_del(struct wormref * const ref, const struct kref * const key)
 // iter {{{
 // safe iter: safe sort with read-lock acquired
 // unsafe iter: allow concurrent seek/skip
-  struct wormhole_iter *
-wormhole_iter_create(struct wormref * const ref)
+  struct litehole_iter *
+litehole_iter_create(struct literef * const ref)
 {
-  struct wormhole_iter * const iter = malloc(sizeof(*iter));
+  struct litehole_iter * const iter = malloc(sizeof(*iter));
   if (iter == NULL)
     return NULL;
   iter->ref = ref;
@@ -841,59 +841,59 @@ wormhole_iter_create(struct wormref * const ref)
 }
 
   static void
-wormhole_iter_fix(struct wormhole_iter * const iter)
+litehole_iter_fix(struct litehole_iter * const iter)
 {
-  if (!wormhole_iter_valid(iter))
+  if (!litehole_iter_valid(iter))
     return;
 
   while (unlikely(iter->is >= iter->leaf->nr_keys)) {
-    struct wormleaf * const next = iter->leaf->next;
+    struct liteleaf * const next = iter->leaf->next;
     if (likely(next != NULL)) {
-      struct wormref * const ref = iter->ref;
-      wormleaf_lock_read(next, ref);
-      wormleaf_unlock_read(iter->leaf);
+      struct literef * const ref = iter->ref;
+      liteleaf_lock_read(next, ref);
+      liteleaf_unlock_read(iter->leaf);
 
     } else {
-      wormleaf_unlock_read(iter->leaf);
+      liteleaf_unlock_read(iter->leaf);
     }
     iter->leaf = next;
     iter->is = 0;
-    if (!wormhole_iter_valid(iter))
+    if (!litehole_iter_valid(iter))
       return;
   }
 }
 
   void
-wormhole_iter_seek(struct wormhole_iter * const iter, const struct kref * const key)
+litehole_iter_seek(struct litehole_iter * const iter, const struct kref * const key)
 {
   debug_assert(key);
   if (iter->leaf)
-    wormleaf_unlock_read(iter->leaf);
+    liteleaf_unlock_read(iter->leaf);
 
-  struct wormleaf * const leaf = wormhole_jump_leaf_read(iter->ref, key);
+  struct liteleaf * const leaf = litehole_jump_leaf_read(iter->ref, key);
 
   iter->leaf = leaf;
-  iter->is = wormleaf_seek_ge(leaf, key);
-  wormhole_iter_fix(iter);
+  iter->is = liteleaf_seek_ge(leaf, key);
+  litehole_iter_fix(iter);
 }
 
   void
-whsafe_iter_seek(struct wormhole_iter * const iter, const struct kref * const key)
+whsafe_iter_seek(struct litehole_iter * const iter, const struct kref * const key)
 {
-  wormhole_resume(iter->ref);
-  wormhole_iter_seek(iter, key);
+  litehole_resume(iter->ref);
+  litehole_iter_seek(iter, key);
 }
 
   bool
-wormhole_iter_valid(struct wormhole_iter * const iter)
+litehole_iter_valid(struct litehole_iter * const iter)
 {
   return iter->leaf != NULL;
 }
 
   static struct kv *
-wormhole_iter_current(struct wormhole_iter * const iter)
+litehole_iter_current(struct litehole_iter * const iter)
 {
-  if (wormhole_iter_valid(iter)) {
+  if (litehole_iter_valid(iter)) {
     debug_assert(iter->is < iter->leaf->nr_keys);
     struct kv * const kv = iter->leaf->kvs[iter->is];
     return kv;
@@ -902,9 +902,9 @@ wormhole_iter_current(struct wormhole_iter * const iter)
 }
 
   struct kv *
-wormhole_iter_peek(struct wormhole_iter * const iter, struct kv * const out)
+litehole_iter_peek(struct litehole_iter * const iter, struct kv * const out)
 {
-  struct kv * const kv = wormhole_iter_current(iter);
+  struct kv * const kv = litehole_iter_current(iter);
   if (kv) {
     struct kv * const ret = iter->map->mm.out(kv, out);
     return ret;
@@ -913,9 +913,9 @@ wormhole_iter_peek(struct wormhole_iter * const iter, struct kv * const out)
 }
 
   bool
-wormhole_iter_kref(struct wormhole_iter * const iter, struct kref * const kref)
+litehole_iter_kref(struct litehole_iter * const iter, struct kref * const kref)
 {
-  struct kv * const kv = wormhole_iter_current(iter);
+  struct kv * const kv = litehole_iter_current(iter);
   if (kv) {
     kref_ref_kv(kref, kv);
     return true;
@@ -924,9 +924,9 @@ wormhole_iter_kref(struct wormhole_iter * const iter, struct kref * const kref)
 }
 
   bool
-wormhole_iter_kvref(struct wormhole_iter * const iter, struct kvref * const kvref)
+litehole_iter_kvref(struct litehole_iter * const iter, struct kvref * const kvref)
 {
-  struct kv * const kv = wormhole_iter_current(iter);
+  struct kv * const kv = litehole_iter_current(iter);
   if (kv) {
     kvref_ref_kv(kvref, kv);
     return true;
@@ -935,80 +935,80 @@ wormhole_iter_kvref(struct wormhole_iter * const iter, struct kvref * const kvre
 }
 
   void
-wormhole_iter_skip1(struct wormhole_iter * const iter)
+litehole_iter_skip1(struct litehole_iter * const iter)
 {
-  if (wormhole_iter_valid(iter)) {
+  if (litehole_iter_valid(iter)) {
     iter->is++;
-    wormhole_iter_fix(iter);
+    litehole_iter_fix(iter);
   }
 }
 
   void
-wormhole_iter_skip(struct wormhole_iter * const iter, const u32 nr)
+litehole_iter_skip(struct litehole_iter * const iter, const u32 nr)
 {
   u32 todo = nr;
-  while (todo && wormhole_iter_valid(iter)) {
+  while (todo && litehole_iter_valid(iter)) {
     const u32 cap = iter->leaf->nr_keys - iter->is;
     const u32 nskip = (cap < todo) ? cap : todo;
     iter->is += nskip;
-    wormhole_iter_fix(iter);
+    litehole_iter_fix(iter);
     todo -= nskip;
   }
 }
 
   struct kv *
-wormhole_iter_next(struct wormhole_iter * const iter, struct kv * const out)
+litehole_iter_next(struct litehole_iter * const iter, struct kv * const out)
 {
-  struct kv * const ret = wormhole_iter_peek(iter, out);
-  wormhole_iter_skip1(iter);
+  struct kv * const ret = litehole_iter_peek(iter, out);
+  litehole_iter_skip1(iter);
   return ret;
 }
 
   bool
-wormhole_iter_inp(struct wormhole_iter * const iter, kv_inp_func uf, void * const priv)
+litehole_iter_inp(struct litehole_iter * const iter, kv_inp_func uf, void * const priv)
 {
-  struct kv * const kv = wormhole_iter_current(iter);
+  struct kv * const kv = litehole_iter_current(iter);
   uf(kv, priv); // call uf even if (kv == NULL)
   return kv != NULL;
 }
 
   void
-wormhole_iter_park(struct wormhole_iter * const iter)
+litehole_iter_park(struct litehole_iter * const iter)
 {
   if (iter->leaf) {
-    wormleaf_unlock_read(iter->leaf);
+    liteleaf_unlock_read(iter->leaf);
     iter->leaf = NULL;
   }
 }
 
   void
-whsafe_iter_park(struct wormhole_iter * const iter)
+whsafe_iter_park(struct litehole_iter * const iter)
 {
-  wormhole_iter_park(iter);
-  wormhole_park(iter->ref);
+  litehole_iter_park(iter);
+  litehole_park(iter->ref);
 }
 
   void
-wormhole_iter_destroy(struct wormhole_iter * const iter)
+litehole_iter_destroy(struct litehole_iter * const iter)
 {
   if (iter->leaf)
-    wormleaf_unlock_read(iter->leaf);
+    liteleaf_unlock_read(iter->leaf);
   free(iter);
 }
 
   void
-whsafe_iter_destroy(struct wormhole_iter * const iter)
+whsafe_iter_destroy(struct litehole_iter * const iter)
 {
-  wormhole_park(iter->ref);
-  wormhole_iter_destroy(iter);
+  litehole_park(iter->ref);
+  litehole_iter_destroy(iter);
 }
 // }}} iter
 
 // misc {{{
-  struct wormref *
-wormhole_ref(struct wormhole * const map)
+  struct literef *
+litehole_ref(struct litehole * const map)
 {
-  struct wormref * const ref = malloc(sizeof(*ref));
+  struct literef * const ref = malloc(sizeof(*ref));
   if (ref == NULL)
     return NULL;
   ref->map = map;
@@ -1019,44 +1019,44 @@ wormhole_ref(struct wormhole * const map)
   return ref;
 }
 
-  struct wormref *
-whsafe_ref(struct wormhole * const map)
+  struct literef *
+whsafe_ref(struct litehole * const map)
 {
-  struct wormref * const ref = wormhole_ref(map);
+  struct literef * const ref = litehole_ref(map);
   if (ref)
-    wormhole_park(ref);
+    litehole_park(ref);
   return ref;
 }
 
-  struct wormhole *
-wormhole_unref(struct wormref * const ref)
+  struct litehole *
+litehole_unref(struct literef * const ref)
 {
-  struct wormhole * const map = ref->map;
+  struct litehole * const map = ref->map;
   qsbr_unregister(map->qsbr, &(ref->qref));
   free(ref);
   return map;
 }
 
   inline void
-wormhole_park(struct wormref * const ref)
+litehole_park(struct literef * const ref)
 {
   qsbr_park(&(ref->qref));
 }
 
   inline void
-wormhole_resume(struct wormref * const ref)
+litehole_resume(struct literef * const ref)
 {
   qsbr_resume(&(ref->qref));
 }
 
   inline void
-wormhole_refresh_qstate(struct wormref * const ref)
+litehole_refresh_qstate(struct literef * const ref)
 {
-  qsbr_update(&(ref->qref), wormhmap_version_load(wormhmap_load(ref->map)));
+  qsbr_update(&(ref->qref), litehmap_version_load(litehmap_load(ref->map)));
 }
 
   static void
-wormhole_clean_hmap(struct wormhole * const map)
+litehole_clean_hmap(struct litehole * const map)
 {
   for (u32 x = 0; x < 2; x++) {
     map->hmap2[x].nkeys = 0;
@@ -1064,7 +1064,7 @@ wormhole_clean_hmap(struct wormhole * const map)
 }
 
   static void
-wormhole_free_leaf_keys(struct wormhole * const map, struct wormleaf * const leaf)
+litehole_free_leaf_keys(struct litehole * const map, struct liteleaf * const leaf)
 {
   const u32 nr = leaf->nr_keys;
   for (u32 i = 0; i < nr; i++) {
@@ -1076,29 +1076,29 @@ wormhole_free_leaf_keys(struct wormhole * const map, struct wormleaf * const lea
 }
 
   static void
-wormhole_clean_helper(struct wormhole * const map)
+litehole_clean_helper(struct litehole * const map)
 {
-  wormhole_clean_hmap(map);
-  for (struct wormleaf * leaf = map->leaf0; leaf; leaf = leaf->next)
-    wormhole_free_leaf_keys(map, leaf);
+  litehole_clean_hmap(map);
+  for (struct liteleaf * leaf = map->leaf0; leaf; leaf = leaf->next)
+    litehole_free_leaf_keys(map, leaf);
   slab_free_all(map->slab_leaf);
   map->leaf0 = NULL;
 }
 
 // unsafe
   void
-wormhole_clean(struct wormhole * const map)
+litehole_clean(struct litehole * const map)
 {
-  wormhole_clean_helper(map);
-  wormhole_create_leaf0(map);
+  litehole_clean_helper(map);
+  litehole_create_leaf0(map);
 }
 
   void
-wormhole_destroy(struct wormhole * const map)
+litehole_destroy(struct litehole * const map)
 {
-  wormhole_clean_helper(map);
+  litehole_clean_helper(map);
   for (u32 i = 0; i < 2; i++) {
-    struct wormhmap * const hmap = &map->hmap2[i];
+    struct litehmap * const hmap = &map->hmap2[i];
     if (hmap->pairs)
       free(hmap->pairs);
   }
