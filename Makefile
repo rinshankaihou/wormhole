@@ -16,7 +16,7 @@ SOURCES +=
 # X => X.S only
 ASSMBLY +=
 # X => X.c X.h
-MODULES += lib kv wh
+MODULES += lib kv wh lite
 # X => X.h
 HEADERS += ctypes
 

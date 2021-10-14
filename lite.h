@@ -21,6 +21,9 @@ litemap_create(const struct kvmap_mm * const mm);
 litemap_get(struct literef * const ref, const struct kref * const key, struct kv * const out);
 
   extern bool
+litemap_probe(struct literef * const ref, const struct kref * const key);
+
+  extern bool
 litemap_put(struct literef * const ref, struct kv * const kv);
 
   extern bool
@@ -86,43 +89,6 @@ litemap_clean(struct litemap * const map);
 
   extern void
 litemap_destroy(struct litemap * const map);
-
-// safe API (no need to refresh qstate)
-
-  extern struct kv *
-whsafe_get(struct literef * const ref, const struct kref * const key, struct kv * const out);
-
-  extern bool
-whsafe_put(struct literef * const ref, struct kv * const kv);
-
-  extern bool
-whsafe_del(struct literef * const ref, const struct kref * const key);
-
-// use litemap_iter_create
-  extern void
-whsafe_iter_seek(struct litemap_iter * const iter, const struct kref * const key);
-
-  extern struct kv *
-whsafe_iter_peek(struct litemap_iter * const iter, struct kv * const out);
-
-// use litemap_iter_valid
-// use litemap_iter_peek
-// use litemap_iter_kref
-// use litemap_iter_kvref
-// use litemap_iter_skip1
-// use litemap_iter_skip
-// use litemap_iter_next
-// use litemap_iter_inp
-
-  extern void
-whsafe_iter_park(struct litemap_iter * const iter);
-
-  extern void
-whsafe_iter_destroy(struct litemap_iter * const iter);
-
-  extern struct literef *
-whsafe_ref(struct litemap * const map);
-
 // }}} litemap
 
 #ifdef __cplusplus

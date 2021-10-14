@@ -543,13 +543,14 @@ litemap_get(struct literef * const ref, const struct kref * const key, struct kv
   return tmp;
 }
 
-  struct kv *
-whsafe_get(struct literef * const ref, const struct kref * const key, struct kv * const out)
+  bool
+litemap_probe(struct literef * const ref, const struct kref * const key)
 {
-  litemap_resume(ref);
-  struct kv * const ret = litemap_get(ref, key, out);
-  litemap_park(ref);
-  return ret;
+  struct liteleaf * const leaf = litemap_jump_leaf_read(ref, key);
+  const u32 i = liteleaf_match_i(leaf, key);
+  const bool r = i < WH_KPN;
+  liteleaf_unlock_read(leaf);
+  return r;
 }
 // }}} get/probe
 
@@ -769,15 +770,6 @@ litemap_put(struct literef * const ref, struct kv * const kv)
     map->mm.free(new, map->mm.priv);
   return rsi;
 }
-
-  bool
-whsafe_put(struct literef * const ref, struct kv * const kv)
-{
-  litemap_resume(ref);
-  const bool r = litemap_put(ref, kv);
-  litemap_park(ref);
-  return r;
-}
 // }}} put
 
 // del {{{
@@ -812,15 +804,6 @@ litemap_del(struct literef * const ref, const struct kref * const key)
     liteleaf_unlock_write(leaf);
     return false;
   }
-}
-
-  bool
-whsafe_del(struct literef * const ref, const struct kref * const key)
-{
-  litemap_resume(ref);
-  const bool r = litemap_del(ref, key);
-  litemap_park(ref);
-  return r;
 }
 // }}} del
 
@@ -875,13 +858,6 @@ litemap_iter_seek(struct litemap_iter * const iter, const struct kref * const ke
   iter->leaf = leaf;
   iter->is = liteleaf_seek_ge(leaf, key);
   litemap_iter_fix(iter);
-}
-
-  void
-whsafe_iter_seek(struct litemap_iter * const iter, const struct kref * const key)
-{
-  litemap_resume(iter->ref);
-  litemap_iter_seek(iter, key);
 }
 
   bool
@@ -982,25 +958,11 @@ litemap_iter_park(struct litemap_iter * const iter)
 }
 
   void
-whsafe_iter_park(struct litemap_iter * const iter)
-{
-  litemap_iter_park(iter);
-  litemap_park(iter->ref);
-}
-
-  void
 litemap_iter_destroy(struct litemap_iter * const iter)
 {
   if (iter->leaf)
     liteleaf_unlock_read(iter->leaf);
   free(iter);
-}
-
-  void
-whsafe_iter_destroy(struct litemap_iter * const iter)
-{
-  litemap_park(iter->ref);
-  litemap_iter_destroy(iter);
 }
 // }}} iter
 
@@ -1016,15 +978,6 @@ litemap_ref(struct litemap * const map)
     free(ref);
     return NULL;
   }
-  return ref;
-}
-
-  struct literef *
-whsafe_ref(struct litemap * const map)
-{
-  struct literef * const ref = litemap_ref(map);
-  if (ref)
-    litemap_park(ref);
   return ref;
 }
 
@@ -1106,6 +1059,64 @@ litemap_destroy(struct litemap * const map)
   slab_destroy(map->slab_leaf);
   free(map);
 }
+
+  void
+litemap_fprint(struct litemap * const map, FILE * const out)
+{
+  fprintf(out, "leaf %lu/%lu %lu/%lu\n", map->hmap2[0].nkeys, map->hmap2[0].nalloc, map->hmap2[1].nkeys, map->hmap2[1].nalloc);
+}
+
 // }}} misc
+
+// api {{{
+const struct kvmap_api kvmap_api_litemap = {
+  .hashkey = true,
+  .ordered = true,
+  .threadsafe = true,
+  .unique = true,
+  .refpark = true,
+  .put = (void *)litemap_put,
+  .get = (void *)litemap_get,
+  .probe = (void *)litemap_probe,
+  .del = (void *)litemap_del,
+  .iter_create = (void *)litemap_iter_create,
+  .iter_seek = (void *)litemap_iter_seek,
+  .iter_valid = (void *)litemap_iter_valid,
+  .iter_peek = (void *)litemap_iter_peek,
+  .iter_kref = (void *)litemap_iter_kref,
+  .iter_kvref = (void *)litemap_iter_kvref,
+  .iter_skip1 = (void *)litemap_iter_skip1,
+  .iter_skip = (void *)litemap_iter_skip,
+  .iter_next = (void *)litemap_iter_next,
+  .iter_inp = (void *)litemap_iter_inp,
+  .iter_park = (void *)litemap_iter_park,
+  .iter_destroy = (void *)litemap_iter_destroy,
+  .ref = (void *)litemap_ref,
+  .unref = (void *)litemap_unref,
+  .park = (void *)litemap_park,
+  .resume = (void *)litemap_resume,
+  .clean = (void *)litemap_clean,
+  .destroy = (void *)litemap_destroy,
+  .fprint = (void *)litemap_fprint,
+};
+
+  static void *
+litemap_kvmap_api_create(const char * const name, const struct kvmap_mm * const mm, char ** args)
+{
+  (void)args;
+  if (!strcmp(name, "litemap")) {
+    return litemap_create(mm);
+  } else {
+    return NULL;
+  }
+}
+
+__attribute__((constructor))
+  static void
+litemap_kvmap_api_init(void)
+{
+  kvmap_api_register(0, "litemap", "", litemap_kvmap_api_create, &kvmap_api_litemap);
+}
+// }}} api
 
 // vim:fdm=marker
