@@ -9,83 +9,83 @@
 extern "C" {
 #endif
 
-struct litehole;
+struct litemap;
 struct literef;
 
-// litehole {{{
-// the wh created by litehole_create() can work with all of safe/unsafe operations.
-  extern struct litehole *
-litehole_create(const struct kvmap_mm * const mm);
+// litemap {{{
+// the wh created by litemap_create() can work with all of safe/unsafe operations.
+  extern struct litemap *
+litemap_create(const struct kvmap_mm * const mm);
 
   extern struct kv *
-litehole_get(struct literef * const ref, const struct kref * const key, struct kv * const out);
+litemap_get(struct literef * const ref, const struct kref * const key, struct kv * const out);
 
   extern bool
-litehole_put(struct literef * const ref, struct kv * const kv);
+litemap_put(struct literef * const ref, struct kv * const kv);
 
   extern bool
-litehole_del(struct literef * const ref, const struct kref * const key);
+litemap_del(struct literef * const ref, const struct kref * const key);
 
-  extern struct litehole_iter *
-litehole_iter_create(struct literef * const ref);
+  extern struct litemap_iter *
+litemap_iter_create(struct literef * const ref);
 
   extern void
-litehole_iter_seek(struct litehole_iter * const iter, const struct kref * const key);
+litemap_iter_seek(struct litemap_iter * const iter, const struct kref * const key);
 
   extern bool
-litehole_iter_valid(struct litehole_iter * const iter);
+litemap_iter_valid(struct litemap_iter * const iter);
 
   extern struct kv *
-litehole_iter_peek(struct litehole_iter * const iter, struct kv * const out);
+litemap_iter_peek(struct litemap_iter * const iter, struct kv * const out);
 
   extern bool
-litehole_iter_kref(struct litehole_iter * const iter, struct kref * const kref);
+litemap_iter_kref(struct litemap_iter * const iter, struct kref * const kref);
 
   extern bool
-litehole_iter_kvref(struct litehole_iter * const iter, struct kvref * const kvref);
+litemap_iter_kvref(struct litemap_iter * const iter, struct kvref * const kvref);
 
   extern void
-litehole_iter_skip1(struct litehole_iter * const iter);
+litemap_iter_skip1(struct litemap_iter * const iter);
 
   extern void
-litehole_iter_skip(struct litehole_iter * const iter, const u32 nr);
+litemap_iter_skip(struct litemap_iter * const iter, const u32 nr);
 
   extern struct kv *
-litehole_iter_next(struct litehole_iter * const iter, struct kv * const out);
+litemap_iter_next(struct litemap_iter * const iter, struct kv * const out);
 
   extern bool
-litehole_iter_inp(struct litehole_iter * const iter, kv_inp_func uf, void * const priv);
+litemap_iter_inp(struct litemap_iter * const iter, kv_inp_func uf, void * const priv);
 
   extern void
-litehole_iter_park(struct litehole_iter * const iter);
+litemap_iter_park(struct litemap_iter * const iter);
 
   extern void
-litehole_iter_destroy(struct litehole_iter * const iter);
+litemap_iter_destroy(struct litemap_iter * const iter);
 
   extern struct literef *
-litehole_ref(struct litehole * const map);
+litemap_ref(struct litemap * const map);
 
-  extern struct litehole *
-litehole_unref(struct literef * const ref);
-
-  extern void
-litehole_park(struct literef * const ref);
+  extern struct litemap *
+litemap_unref(struct literef * const ref);
 
   extern void
-litehole_resume(struct literef * const ref);
+litemap_park(struct literef * const ref);
 
   extern void
-litehole_refresh_qstate(struct literef * const ref);
+litemap_resume(struct literef * const ref);
+
+  extern void
+litemap_refresh_qstate(struct literef * const ref);
 
 // clean with more threads
   extern void
-litehole_clean_th(struct litehole * const map, const u32 nr_threads);
+litemap_clean_th(struct litemap * const map, const u32 nr_threads);
 
   extern void
-litehole_clean(struct litehole * const map);
+litemap_clean(struct litemap * const map);
 
   extern void
-litehole_destroy(struct litehole * const map);
+litemap_destroy(struct litemap * const map);
 
 // safe API (no need to refresh qstate)
 
@@ -98,32 +98,32 @@ whsafe_put(struct literef * const ref, struct kv * const kv);
   extern bool
 whsafe_del(struct literef * const ref, const struct kref * const key);
 
-// use litehole_iter_create
+// use litemap_iter_create
   extern void
-whsafe_iter_seek(struct litehole_iter * const iter, const struct kref * const key);
+whsafe_iter_seek(struct litemap_iter * const iter, const struct kref * const key);
 
   extern struct kv *
-whsafe_iter_peek(struct litehole_iter * const iter, struct kv * const out);
+whsafe_iter_peek(struct litemap_iter * const iter, struct kv * const out);
 
-// use litehole_iter_valid
-// use litehole_iter_peek
-// use litehole_iter_kref
-// use litehole_iter_kvref
-// use litehole_iter_skip1
-// use litehole_iter_skip
-// use litehole_iter_next
-// use litehole_iter_inp
-
-  extern void
-whsafe_iter_park(struct litehole_iter * const iter);
+// use litemap_iter_valid
+// use litemap_iter_peek
+// use litemap_iter_kref
+// use litemap_iter_kvref
+// use litemap_iter_skip1
+// use litemap_iter_skip
+// use litemap_iter_next
+// use litemap_iter_inp
 
   extern void
-whsafe_iter_destroy(struct litehole_iter * const iter);
+whsafe_iter_park(struct litemap_iter * const iter);
+
+  extern void
+whsafe_iter_destroy(struct litemap_iter * const iter);
 
   extern struct literef *
-whsafe_ref(struct litehole * const map);
+whsafe_ref(struct litemap * const map);
 
-// }}} litehole
+// }}} litemap
 
 #ifdef __cplusplus
 }

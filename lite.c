@@ -53,7 +53,7 @@ struct litehmap {
   u64 padding1[5];
 };
 
-struct litehole {
+struct litemap {
   // 1 line
   union {
     volatile au64 hmap_ptr; // safe
@@ -73,15 +73,15 @@ struct litehole {
   u32 padding2[15];
 };
 
-struct litehole_iter {
+struct litemap_iter {
   struct literef * ref; // safe-iter only
-  struct litehole * map;
+  struct litemap * map;
   struct liteleaf * leaf;
   u32 is;
 };
 
 struct literef {
-  struct litehole * map;
+  struct litemap * map;
   struct qsbr_ref qref;
 };
 // }}} struct
@@ -90,7 +90,7 @@ struct literef {
 
 // alloc {{{
   static struct liteleaf *
-liteleaf_alloc(struct litehole * const map, struct liteleaf * const prev,
+liteleaf_alloc(struct litemap * const map, struct liteleaf * const prev,
     struct liteleaf * const next, struct kv * const anchor)
 {
   struct liteleaf * const leaf = slab_alloc_safe(map->slab_leaf);
@@ -119,7 +119,7 @@ liteleaf_free(struct slab * const slab, struct liteleaf * const leaf)
 }
 
   static inline bool
-litehole_hmap_reserve(struct litehole * const map, const u32 nr)
+litemap_hmap_reserve(struct litemap * const map, const u32 nr)
 {
 #ifdef ALLOCFAIL
   if (alloc_fail())
@@ -145,9 +145,9 @@ litehole_hmap_reserve(struct litehole * const map, const u32 nr)
 liteleaf_lock_write(struct liteleaf * const leaf, struct literef * const ref)
 {
   if (!rwlock_trylock_write(&(leaf->leaflock))) {
-    litehole_park(ref);
+    litemap_park(ref);
     rwlock_lock_write(&(leaf->leaflock));
-    litehole_resume(ref);
+    litemap_resume(ref);
   }
 }
 
@@ -155,9 +155,9 @@ liteleaf_lock_write(struct liteleaf * const leaf, struct literef * const ref)
 liteleaf_lock_read(struct liteleaf * const leaf, struct literef * const ref)
 {
   if (!rwlock_trylock_read(&(leaf->leaflock))) {
-    litehole_park(ref);
+    litemap_park(ref);
     rwlock_lock_read(&(leaf->leaflock));
-    litehole_resume(ref);
+    litemap_resume(ref);
   }
 }
 
@@ -174,17 +174,17 @@ liteleaf_unlock_read(struct liteleaf * const leaf)
 }
 
   static void
-litehmap_lock(struct litehole * const map, struct literef * const ref)
+litehmap_lock(struct litemap * const map, struct literef * const ref)
 {
   if (!rwlock_trylock_write(&(map->metalock))) {
-    litehole_park(ref);
+    litemap_park(ref);
     rwlock_lock_write(&(map->metalock));
-    litehole_resume(ref);
+    litemap_resume(ref);
   }
 }
 
   static inline void
-litehmap_unlock(struct litehole * const map)
+litehmap_unlock(struct litemap * const map)
 {
   rwlock_unlock_write(&(map->metalock));
 }
@@ -192,19 +192,19 @@ litehmap_unlock(struct litehole * const map)
 
 // hmap-version {{{
   static inline struct litehmap *
-litehmap_switch(struct litehole * const map, struct litehmap * const hmap)
+litehmap_switch(struct litemap * const map, struct litehmap * const hmap)
 {
   return (hmap == map->hmap2) ? (hmap + 1) : (hmap - 1);
 }
 
   static inline struct litehmap *
-litehmap_load(struct litehole * const map)
+litehmap_load(struct litemap * const map)
 {
   return (struct litehmap *)atomic_load_explicit(&(map->hmap_ptr), MO_ACQUIRE);
 }
 
   static inline void
-litehmap_store(struct litehole * const map, struct litehmap * const hmap)
+litehmap_store(struct litemap * const map, struct litehmap * const hmap)
 {
   atomic_store_explicit(&(map->hmap_ptr), (u64)hmap, MO_RELEASE);
 }
@@ -237,7 +237,7 @@ liteleaf_version_store(struct liteleaf * const leaf, const u64 v)
 
 // co {{{
   static inline void
-litehole_qsbr_update_pause(struct literef * const ref, const u64 v)
+litemap_qsbr_update_pause(struct literef * const ref, const u64 v)
 {
   qsbr_update(&ref->qref, v);
 #if defined(CORR)
@@ -251,7 +251,7 @@ litehole_qsbr_update_pause(struct literef * const ref, const u64 v)
 // create {{{
 // it's unsafe
   static bool
-litehole_create_leaf0(struct litehole * const map)
+litemap_create_leaf0(struct litemap * const map)
 {
   // create leaf of empty key
   struct kv * const anchor = malloc(sizeof(*anchor));
@@ -269,10 +269,10 @@ litehole_create_leaf0(struct litehole * const map)
   return true;
 }
 
-  struct litehole *
-litehole_create(const struct kvmap_mm * const mm)
+  struct litemap *
+litemap_create(const struct kvmap_mm * const mm)
 {
-  struct litehole * const map = yalloc(sizeof(*map));
+  struct litemap * const map = yalloc(sizeof(*map));
   if (map == NULL)
     return NULL;
   memset(map, 0, sizeof(*map));
@@ -290,7 +290,7 @@ litehole_create(const struct kvmap_mm * const mm)
     goto fail;
 
   // leaf0
-  if (!litehole_create_leaf0(map))
+  if (!litemap_create_leaf0(map))
     goto fail;
 
   struct liteleaf * const leaf0 = map->leaf0;
@@ -356,22 +356,22 @@ litehmap_jump_i(const struct litehmap * const hmap, const struct kref * const ke
 }
 
   static struct liteleaf *
-litehole_jump_leaf(const struct litehmap * const hmap, const struct kref * const key)
+litemap_jump_leaf(const struct litehmap * const hmap, const struct kref * const key)
 {
   const u64 i = litehmap_jump_i(hmap, key);
   return hmap->pairs[i].leaf;
 }
 
   static struct liteleaf *
-litehole_jump_leaf_read(struct literef * const ref, const struct kref * const key)
+litemap_jump_leaf_read(struct literef * const ref, const struct kref * const key)
 {
-  struct litehole * const map = ref->map;
+  struct litemap * const map = ref->map;
 #pragma nounroll
   do {
     const struct litehmap * const hmap = litehmap_load(map);
     const u64 v = litehmap_version_load(hmap);
     qsbr_update(&ref->qref, v);
-    struct liteleaf * const leaf = litehole_jump_leaf(hmap, key);
+    struct liteleaf * const leaf = litemap_jump_leaf(hmap, key);
 #pragma nounroll
     do {
       if (rwlock_trylock_read_nr(&(leaf->leaflock), 64)) {
@@ -384,21 +384,21 @@ litehole_jump_leaf_read(struct literef * const ref, const struct kref * const ke
       const u64 v1 = litehmap_version_load(litehmap_load(map));
       if (liteleaf_version_load(leaf) > v)
         break;
-      litehole_qsbr_update_pause(ref, v1);
+      litemap_qsbr_update_pause(ref, v1);
     } while (true);
   } while (true);
 }
 
   static struct liteleaf *
-litehole_jump_leaf_write(struct literef * const ref, const struct kref * const key)
+litemap_jump_leaf_write(struct literef * const ref, const struct kref * const key)
 {
-  struct litehole * const map = ref->map;
+  struct litemap * const map = ref->map;
 #pragma nounroll
   do {
     const struct litehmap * const hmap = litehmap_load(map);
     const u64 v = litehmap_version_load(hmap);
     qsbr_update(&ref->qref, v);
-    struct liteleaf * const leaf = litehole_jump_leaf(hmap, key);
+    struct liteleaf * const leaf = litemap_jump_leaf(hmap, key);
 #pragma nounroll
     do {
       if (rwlock_trylock_write_nr(&(leaf->leaflock), 64)) {
@@ -411,7 +411,7 @@ litehole_jump_leaf_write(struct literef * const ref, const struct kref * const k
       const u64 v1 = litehmap_version_load(litehmap_load(map));
       if (liteleaf_version_load(leaf) > v)
         break;
-      litehole_qsbr_update_pause(ref, v1);
+      litemap_qsbr_update_pause(ref, v1);
     } while (true);
   } while (true);
 }
@@ -472,7 +472,7 @@ liteleaf_insert(struct liteleaf * const leaf, const u32 i, struct kv * const new
 }
 
   static struct liteleaf *
-litehole_split_leaf(struct litehole * const map, struct liteleaf * const leaf1,
+litemap_split_leaf(struct litemap * const map, struct liteleaf * const leaf1,
     const u32 i, struct kv * const new)
 {
   debug_assert(leaf1->nr_keys == WH_KPN);
@@ -516,7 +516,7 @@ liteleaf_merge(struct liteleaf * const leaf1, struct liteleaf * const leaf2)
 }
 
   static void
-liteleaf_split_undo(struct litehole * const map, struct liteleaf * const leaf1,
+liteleaf_split_undo(struct litemap * const map, struct liteleaf * const leaf1,
     struct liteleaf * const leaf2, const u32 i)
 {
   if (i <= WH_MID) {
@@ -534,9 +534,9 @@ liteleaf_split_undo(struct litehole * const map, struct liteleaf * const leaf1,
 
 // get/probe {{{
   struct kv *
-litehole_get(struct literef * const ref, const struct kref * const key, struct kv * const out)
+litemap_get(struct literef * const ref, const struct kref * const key, struct kv * const out)
 {
-  struct liteleaf * const leaf = litehole_jump_leaf_read(ref, key);
+  struct liteleaf * const leaf = litemap_jump_leaf_read(ref, key);
   const u32 i = liteleaf_match_i(leaf, key);
   struct kv * const tmp = (i < WH_KPN) ? ref->map->mm.out(leaf->kvs[i], out) : NULL;
   liteleaf_unlock_read(leaf);
@@ -546,9 +546,9 @@ litehole_get(struct literef * const ref, const struct kref * const key, struct k
   struct kv *
 whsafe_get(struct literef * const ref, const struct kref * const key, struct kv * const out)
 {
-  litehole_resume(ref);
-  struct kv * const ret = litehole_get(ref, key, out);
-  litehole_park(ref);
+  litemap_resume(ref);
+  struct kv * const ret = litemap_get(ref, key, out);
+  litemap_park(ref);
   return ret;
 }
 // }}} get/probe
@@ -587,14 +587,14 @@ litemeta_split(struct litehmap * const hmap, struct liteleaf * const leaf)
 
 // all locks will be released before returning
   static bool
-litehole_split_meta(struct literef * const ref, struct liteleaf * const leaf2)
+litemap_split_meta(struct literef * const ref, struct liteleaf * const leaf2)
 {
-  struct litehole * const map = ref->map;
+  struct litemap * const map = ref->map;
   // metalock
   litehmap_lock(map, ref);
 
   // check slab reserve
-  const bool sr = litehole_hmap_reserve(map, 1);
+  const bool sr = litemap_hmap_reserve(map, 1);
   if (unlikely(!sr)) {
     litehmap_unlock(map);
     return false;
@@ -637,17 +637,17 @@ litehole_split_meta(struct literef * const ref, struct liteleaf * const leaf2)
 // all locks (metalock + leaflocks) will be released before returning
 // leaf1->lock (write) is already taken
   static bool
-litehole_split_insert(struct literef * const ref, struct liteleaf * const leaf1,
+litemap_split_insert(struct literef * const ref, struct liteleaf * const leaf1,
     const u32 i, struct kv * const new)
 {
-  struct liteleaf * const leaf2 = litehole_split_leaf(ref->map, leaf1, i, new);
+  struct liteleaf * const leaf2 = litemap_split_leaf(ref->map, leaf1, i, new);
   if (unlikely(leaf2 == NULL)) {
     liteleaf_unlock_write(leaf1);
     return false;
   }
 
   rwlock_lock_write(&(leaf2->leaflock));
-  const bool rsm = litehole_split_meta(ref, leaf2);
+  const bool rsm = litemap_split_meta(ref, leaf2);
   if (unlikely(!rsm)) {
     // undo insertion & merge; free leaf2
     liteleaf_split_undo(ref->map, leaf1, leaf2, i);
@@ -670,12 +670,12 @@ litemeta_merge(struct litehmap * const hmap, struct liteleaf * const leaf)
 // all locks (metalock + two leaflock) will be released before returning
 // merge leaf2 to leaf1, removing all metadata to leaf2 and leaf2 itself
   static void
-litehole_meta_merge(struct literef * const ref, struct liteleaf * const leaf1,
+litemap_meta_merge(struct literef * const ref, struct liteleaf * const leaf1,
     struct liteleaf * const leaf2, const bool unlock_leaf1)
 {
   debug_assert(leaf1->next == leaf2);
   debug_assert(leaf2->prev == leaf1);
-  struct litehole * const map = ref->map;
+  struct litemap * const map = ref->map;
 
   litehmap_lock(map, ref);
 
@@ -713,7 +713,7 @@ litehole_meta_merge(struct literef * const ref, struct liteleaf * const leaf1,
 // caller must acquire leaf->wlock and next->wlock
 // all locks will be released when this function returns
   static bool
-litehole_meta_leaf_merge(struct literef * const ref, struct liteleaf * const leaf)
+litemap_meta_leaf_merge(struct literef * const ref, struct liteleaf * const leaf)
 {
   struct liteleaf * const next = leaf->next;
   debug_assert(next);
@@ -721,7 +721,7 @@ litehole_meta_leaf_merge(struct literef * const ref, struct liteleaf * const lea
   // double check
   if ((leaf->nr_keys + next->nr_keys) <= WH_KPN) {
     if (liteleaf_merge(leaf, next)) {
-      litehole_meta_merge(ref, leaf, next, true);
+      litemap_meta_merge(ref, leaf, next, true);
       return true;
     }
   }
@@ -734,17 +734,17 @@ litehole_meta_leaf_merge(struct literef * const ref, struct liteleaf * const lea
 
 // put {{{
   bool
-litehole_put(struct literef * const ref, struct kv * const kv)
+litemap_put(struct literef * const ref, struct kv * const kv)
 {
   // we always allocate a new item on SET
   // future optimizations may perform in-place update
-  struct litehole * const map = ref->map;
+  struct litemap * const map = ref->map;
   struct kv * const new = map->mm.in(kv, map->mm.priv);
   if (unlikely(new == NULL))
     return false;
   const struct kref kref = kv_kref(new);
 
-  struct liteleaf * const leaf = litehole_jump_leaf_write(ref, &kref);
+  struct liteleaf * const leaf = litemap_jump_leaf_write(ref, &kref);
   // update
   const u32 im = liteleaf_seek_ge(leaf, &kref);
   const u32 i = im & WH_KPN_MASK;
@@ -763,8 +763,8 @@ litehole_put(struct literef * const ref, struct kv * const kv)
   }
 
   // split_insert changes hmap
-  // all locks should be released in litehole_split_insert()
-  const bool rsi = litehole_split_insert(ref, leaf, i, new);
+  // all locks should be released in litemap_split_insert()
+  const bool rsi = litemap_split_insert(ref, leaf, i, new);
   if (!rsi)
     map->mm.free(new, map->mm.priv);
   return rsi;
@@ -773,22 +773,22 @@ litehole_put(struct literef * const ref, struct kv * const kv)
   bool
 whsafe_put(struct literef * const ref, struct kv * const kv)
 {
-  litehole_resume(ref);
-  const bool r = litehole_put(ref, kv);
-  litehole_park(ref);
+  litemap_resume(ref);
+  const bool r = litemap_put(ref, kv);
+  litemap_park(ref);
   return r;
 }
 // }}} put
 
 // del {{{
   static void
-litehole_del_try_merge(struct literef * const ref, struct liteleaf * const leaf)
+litemap_del_try_merge(struct literef * const ref, struct liteleaf * const leaf)
 {
   struct liteleaf * const next = leaf->next;
   if (next && ((leaf->nr_keys == 0) || ((leaf->nr_keys + next->nr_keys) < WH_KPN_MRG))) {
     // try merge, it may fail if size becomes larger after locking
     liteleaf_lock_write(next, ref);
-    (void)litehole_meta_leaf_merge(ref, leaf);
+    (void)litemap_meta_leaf_merge(ref, leaf);
     // locks are already released; immediately return
   } else {
     liteleaf_unlock_write(leaf);
@@ -796,16 +796,16 @@ litehole_del_try_merge(struct literef * const ref, struct liteleaf * const leaf)
 }
 
   bool
-litehole_del(struct literef * const ref, const struct kref * const key)
+litemap_del(struct literef * const ref, const struct kref * const key)
 {
-  struct liteleaf * const leaf = litehole_jump_leaf_write(ref, key);
+  struct liteleaf * const leaf = litemap_jump_leaf_write(ref, key);
   const u32 im = liteleaf_match_i(leaf, key);
   if (im < WH_KPN) { // found
     struct kv * const kv = liteleaf_remove(leaf, im);
-    litehole_del_try_merge(ref, leaf);
+    litemap_del_try_merge(ref, leaf);
     debug_assert(kv);
     // free after releasing locks
-    struct litehole * const map = ref->map;
+    struct litemap * const map = ref->map;
     map->mm.free(kv, map->mm.priv);
     return true;
   } else {
@@ -817,9 +817,9 @@ litehole_del(struct literef * const ref, const struct kref * const key)
   bool
 whsafe_del(struct literef * const ref, const struct kref * const key)
 {
-  litehole_resume(ref);
-  const bool r = litehole_del(ref, key);
-  litehole_park(ref);
+  litemap_resume(ref);
+  const bool r = litemap_del(ref, key);
+  litemap_park(ref);
   return r;
 }
 // }}} del
@@ -827,10 +827,10 @@ whsafe_del(struct literef * const ref, const struct kref * const key)
 // iter {{{
 // safe iter: safe sort with read-lock acquired
 // unsafe iter: allow concurrent seek/skip
-  struct litehole_iter *
-litehole_iter_create(struct literef * const ref)
+  struct litemap_iter *
+litemap_iter_create(struct literef * const ref)
 {
-  struct litehole_iter * const iter = malloc(sizeof(*iter));
+  struct litemap_iter * const iter = malloc(sizeof(*iter));
   if (iter == NULL)
     return NULL;
   iter->ref = ref;
@@ -841,9 +841,9 @@ litehole_iter_create(struct literef * const ref)
 }
 
   static void
-litehole_iter_fix(struct litehole_iter * const iter)
+litemap_iter_fix(struct litemap_iter * const iter)
 {
-  if (!litehole_iter_valid(iter))
+  if (!litemap_iter_valid(iter))
     return;
 
   while (unlikely(iter->is >= iter->leaf->nr_keys)) {
@@ -858,42 +858,42 @@ litehole_iter_fix(struct litehole_iter * const iter)
     }
     iter->leaf = next;
     iter->is = 0;
-    if (!litehole_iter_valid(iter))
+    if (!litemap_iter_valid(iter))
       return;
   }
 }
 
   void
-litehole_iter_seek(struct litehole_iter * const iter, const struct kref * const key)
+litemap_iter_seek(struct litemap_iter * const iter, const struct kref * const key)
 {
   debug_assert(key);
   if (iter->leaf)
     liteleaf_unlock_read(iter->leaf);
 
-  struct liteleaf * const leaf = litehole_jump_leaf_read(iter->ref, key);
+  struct liteleaf * const leaf = litemap_jump_leaf_read(iter->ref, key);
 
   iter->leaf = leaf;
   iter->is = liteleaf_seek_ge(leaf, key);
-  litehole_iter_fix(iter);
+  litemap_iter_fix(iter);
 }
 
   void
-whsafe_iter_seek(struct litehole_iter * const iter, const struct kref * const key)
+whsafe_iter_seek(struct litemap_iter * const iter, const struct kref * const key)
 {
-  litehole_resume(iter->ref);
-  litehole_iter_seek(iter, key);
+  litemap_resume(iter->ref);
+  litemap_iter_seek(iter, key);
 }
 
   bool
-litehole_iter_valid(struct litehole_iter * const iter)
+litemap_iter_valid(struct litemap_iter * const iter)
 {
   return iter->leaf != NULL;
 }
 
   static struct kv *
-litehole_iter_current(struct litehole_iter * const iter)
+litemap_iter_current(struct litemap_iter * const iter)
 {
-  if (litehole_iter_valid(iter)) {
+  if (litemap_iter_valid(iter)) {
     debug_assert(iter->is < iter->leaf->nr_keys);
     struct kv * const kv = iter->leaf->kvs[iter->is];
     return kv;
@@ -902,9 +902,9 @@ litehole_iter_current(struct litehole_iter * const iter)
 }
 
   struct kv *
-litehole_iter_peek(struct litehole_iter * const iter, struct kv * const out)
+litemap_iter_peek(struct litemap_iter * const iter, struct kv * const out)
 {
-  struct kv * const kv = litehole_iter_current(iter);
+  struct kv * const kv = litemap_iter_current(iter);
   if (kv) {
     struct kv * const ret = iter->map->mm.out(kv, out);
     return ret;
@@ -913,9 +913,9 @@ litehole_iter_peek(struct litehole_iter * const iter, struct kv * const out)
 }
 
   bool
-litehole_iter_kref(struct litehole_iter * const iter, struct kref * const kref)
+litemap_iter_kref(struct litemap_iter * const iter, struct kref * const kref)
 {
-  struct kv * const kv = litehole_iter_current(iter);
+  struct kv * const kv = litemap_iter_current(iter);
   if (kv) {
     kref_ref_kv(kref, kv);
     return true;
@@ -924,9 +924,9 @@ litehole_iter_kref(struct litehole_iter * const iter, struct kref * const kref)
 }
 
   bool
-litehole_iter_kvref(struct litehole_iter * const iter, struct kvref * const kvref)
+litemap_iter_kvref(struct litemap_iter * const iter, struct kvref * const kvref)
 {
-  struct kv * const kv = litehole_iter_current(iter);
+  struct kv * const kv = litemap_iter_current(iter);
   if (kv) {
     kvref_ref_kv(kvref, kv);
     return true;
@@ -935,45 +935,45 @@ litehole_iter_kvref(struct litehole_iter * const iter, struct kvref * const kvre
 }
 
   void
-litehole_iter_skip1(struct litehole_iter * const iter)
+litemap_iter_skip1(struct litemap_iter * const iter)
 {
-  if (litehole_iter_valid(iter)) {
+  if (litemap_iter_valid(iter)) {
     iter->is++;
-    litehole_iter_fix(iter);
+    litemap_iter_fix(iter);
   }
 }
 
   void
-litehole_iter_skip(struct litehole_iter * const iter, const u32 nr)
+litemap_iter_skip(struct litemap_iter * const iter, const u32 nr)
 {
   u32 todo = nr;
-  while (todo && litehole_iter_valid(iter)) {
+  while (todo && litemap_iter_valid(iter)) {
     const u32 cap = iter->leaf->nr_keys - iter->is;
     const u32 nskip = (cap < todo) ? cap : todo;
     iter->is += nskip;
-    litehole_iter_fix(iter);
+    litemap_iter_fix(iter);
     todo -= nskip;
   }
 }
 
   struct kv *
-litehole_iter_next(struct litehole_iter * const iter, struct kv * const out)
+litemap_iter_next(struct litemap_iter * const iter, struct kv * const out)
 {
-  struct kv * const ret = litehole_iter_peek(iter, out);
-  litehole_iter_skip1(iter);
+  struct kv * const ret = litemap_iter_peek(iter, out);
+  litemap_iter_skip1(iter);
   return ret;
 }
 
   bool
-litehole_iter_inp(struct litehole_iter * const iter, kv_inp_func uf, void * const priv)
+litemap_iter_inp(struct litemap_iter * const iter, kv_inp_func uf, void * const priv)
 {
-  struct kv * const kv = litehole_iter_current(iter);
+  struct kv * const kv = litemap_iter_current(iter);
   uf(kv, priv); // call uf even if (kv == NULL)
   return kv != NULL;
 }
 
   void
-litehole_iter_park(struct litehole_iter * const iter)
+litemap_iter_park(struct litemap_iter * const iter)
 {
   if (iter->leaf) {
     liteleaf_unlock_read(iter->leaf);
@@ -982,14 +982,14 @@ litehole_iter_park(struct litehole_iter * const iter)
 }
 
   void
-whsafe_iter_park(struct litehole_iter * const iter)
+whsafe_iter_park(struct litemap_iter * const iter)
 {
-  litehole_iter_park(iter);
-  litehole_park(iter->ref);
+  litemap_iter_park(iter);
+  litemap_park(iter->ref);
 }
 
   void
-litehole_iter_destroy(struct litehole_iter * const iter)
+litemap_iter_destroy(struct litemap_iter * const iter)
 {
   if (iter->leaf)
     liteleaf_unlock_read(iter->leaf);
@@ -997,16 +997,16 @@ litehole_iter_destroy(struct litehole_iter * const iter)
 }
 
   void
-whsafe_iter_destroy(struct litehole_iter * const iter)
+whsafe_iter_destroy(struct litemap_iter * const iter)
 {
-  litehole_park(iter->ref);
-  litehole_iter_destroy(iter);
+  litemap_park(iter->ref);
+  litemap_iter_destroy(iter);
 }
 // }}} iter
 
 // misc {{{
   struct literef *
-litehole_ref(struct litehole * const map)
+litemap_ref(struct litemap * const map)
 {
   struct literef * const ref = malloc(sizeof(*ref));
   if (ref == NULL)
@@ -1020,43 +1020,43 @@ litehole_ref(struct litehole * const map)
 }
 
   struct literef *
-whsafe_ref(struct litehole * const map)
+whsafe_ref(struct litemap * const map)
 {
-  struct literef * const ref = litehole_ref(map);
+  struct literef * const ref = litemap_ref(map);
   if (ref)
-    litehole_park(ref);
+    litemap_park(ref);
   return ref;
 }
 
-  struct litehole *
-litehole_unref(struct literef * const ref)
+  struct litemap *
+litemap_unref(struct literef * const ref)
 {
-  struct litehole * const map = ref->map;
+  struct litemap * const map = ref->map;
   qsbr_unregister(map->qsbr, &(ref->qref));
   free(ref);
   return map;
 }
 
   inline void
-litehole_park(struct literef * const ref)
+litemap_park(struct literef * const ref)
 {
   qsbr_park(&(ref->qref));
 }
 
   inline void
-litehole_resume(struct literef * const ref)
+litemap_resume(struct literef * const ref)
 {
   qsbr_resume(&(ref->qref));
 }
 
   inline void
-litehole_refresh_qstate(struct literef * const ref)
+litemap_refresh_qstate(struct literef * const ref)
 {
   qsbr_update(&(ref->qref), litehmap_version_load(litehmap_load(ref->map)));
 }
 
   static void
-litehole_clean_hmap(struct litehole * const map)
+litemap_clean_hmap(struct litemap * const map)
 {
   for (u32 x = 0; x < 2; x++) {
     map->hmap2[x].nkeys = 0;
@@ -1064,7 +1064,7 @@ litehole_clean_hmap(struct litehole * const map)
 }
 
   static void
-litehole_free_leaf_keys(struct litehole * const map, struct liteleaf * const leaf)
+litemap_free_leaf_keys(struct litemap * const map, struct liteleaf * const leaf)
 {
   const u32 nr = leaf->nr_keys;
   for (u32 i = 0; i < nr; i++) {
@@ -1076,27 +1076,27 @@ litehole_free_leaf_keys(struct litehole * const map, struct liteleaf * const lea
 }
 
   static void
-litehole_clean_helper(struct litehole * const map)
+litemap_clean_helper(struct litemap * const map)
 {
-  litehole_clean_hmap(map);
+  litemap_clean_hmap(map);
   for (struct liteleaf * leaf = map->leaf0; leaf; leaf = leaf->next)
-    litehole_free_leaf_keys(map, leaf);
+    litemap_free_leaf_keys(map, leaf);
   slab_free_all(map->slab_leaf);
   map->leaf0 = NULL;
 }
 
 // unsafe
   void
-litehole_clean(struct litehole * const map)
+litemap_clean(struct litemap * const map)
 {
-  litehole_clean_helper(map);
-  litehole_create_leaf0(map);
+  litemap_clean_helper(map);
+  litemap_create_leaf0(map);
 }
 
   void
-litehole_destroy(struct litehole * const map)
+litemap_destroy(struct litemap * const map)
 {
-  litehole_clean_helper(map);
+  litemap_clean_helper(map);
   for (u32 i = 0; i < 2; i++) {
     struct litehmap * const hmap = &map->hmap2[i];
     if (hmap->pairs)
