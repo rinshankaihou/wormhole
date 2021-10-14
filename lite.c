@@ -117,27 +117,6 @@ liteleaf_free(struct slab * const slab, struct liteleaf * const leaf)
   free(leaf->anchor);
   slab_free_safe(slab, leaf);
 }
-
-  static inline bool
-litemap_hmap_reserve(struct litemap * const map, const u32 nr)
-{
-#ifdef ALLOCFAIL
-  if (alloc_fail())
-    return false;
-#endif
-  for (u32 i = 0; i < 2; i++) {
-    struct litehmap * const hmap = &map->hmap2[i];
-    if (hmap->nkeys + nr > hmap->nalloc) { // try realloc
-      const u64 n1 = hmap->nalloc + 256;
-      void * const pairs1 = realloc(hmap->pairs, sizeof(hmap->pairs[0]) * n1);
-      if (pairs1 == NULL)
-        return false;
-      hmap->nalloc = n1;
-      hmap->pairs = pairs1;
-    }
-  }
-  return true;
-}
 // }}} alloc
 
 // lock {{{
@@ -299,7 +278,7 @@ litemap_create(const struct kvmap_mm * const mm)
   for (u32 i = 0; i < 2; i++) {
     struct litehmap * const hmap = &map->hmap2[i];
     hmap->nalloc = 256;
-    hmap->pairs = malloc(sizeof(*hmap->pairs) * 256);
+    hmap->pairs = malloc(sizeof(hmap->pairs[0]) * 256);
     if (hmap->pairs == NULL)
       goto fail;
 
@@ -585,6 +564,21 @@ litemeta_split(struct litehmap * const hmap, struct liteleaf * const leaf)
   hmap->pairs[i].leaf = leaf;
   hmap->pairs[i].anchor = leaf->anchor;
   hmap->nkeys++;
+
+  if (unlikely(hmap->nkeys == hmap->nalloc)) { // try realloc
+
+#ifdef ALLOCFAIL
+    if (alloc_fail())
+      return;
+#endif
+
+    const u64 n1 = hmap->nalloc + 256;
+    void * const pairs1 = realloc(hmap->pairs, sizeof(hmap->pairs[0]) * n1);
+    if (pairs1) {
+      hmap->nalloc = n1;
+      hmap->pairs = pairs1;
+    }
+  }
 }
 
 // all locks will be released before returning
@@ -595,15 +589,14 @@ litemap_split_meta(struct literef * const ref, struct liteleaf * const leaf2)
   // metalock
   litehmap_lock(map, ref);
 
-  // check slab reserve
-  const bool sr = litemap_hmap_reserve(map, 1);
-  if (unlikely(!sr)) {
+  struct litehmap * const hmap0 = litehmap_load(map);
+  struct litehmap * const hmap1 = litehmap_switch(map, hmap0);
+
+  // the previous split should have done reservation
+  if ((hmap0->nalloc == hmap0->nkeys) || (hmap1->nalloc == hmap1->nkeys)) {
     litehmap_unlock(map);
     return false;
   }
-
-  struct litehmap * const hmap0 = litehmap_load(map);
-  struct litehmap * const hmap1 = litehmap_switch(map, hmap0);
 
   // link
   struct liteleaf * const leaf1 = leaf2->prev;
